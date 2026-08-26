@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUserFromRequest, isAdmin } from '@/lib/session';
-import { createRecord, findRecords, getRecord } from '@/lib/airtable';
+import { createRecord, findRecords, getRecord, updateRecord } from '@/lib/airtable';
 import { Alert, Patient } from '@/lib/types';
+import { sendAlertEmail } from '@/lib/email';
 
 export async function GET(request: NextRequest) {
   const user = await getCurrentUserFromRequest(request);
@@ -49,6 +50,15 @@ export async function POST(request: NextRequest) {
       Campos_faltantes: body.campos_faltantes || 0,
       Notificado: false,
     });
+
+    const sent = await sendAlertEmail({
+      pacienteNombre: (patient as any)?.paciente || 'Paciente',
+      pasoIncompleto: body.paso_incompleto,
+      usuarioNombre: user.nombre,
+    });
+    if (sent) {
+      await updateRecord('alerts', alert.id, { Notificado: true });
+    }
 
     return NextResponse.json({ alert }, { status: 201 });
   } catch (error) {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUserFromRequest, isAdmin } from '@/lib/session';
 import { getRecord, updateRecord, findRecords, createRecord } from '@/lib/airtable';
 import { Cita, Patient } from '@/lib/types';
+import { sendAlertEmail } from '@/lib/email';
 
 const BASE_ID = process.env.NEXT_PUBLIC_AIRTABLE_BASE_ID;
 const API_TOKEN = process.env.AIRTABLE_API_TOKEN;
@@ -75,16 +76,26 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 
           const streak = await countConsecutiveNoShows(patientId);
           if (streak >= NO_SHOW_ALERT_THRESHOLD) {
-            await createRecord('alerts', {
+            const pasoIncompleto = `${streak} inasistencias seguidas`;
+            const newAlert = await createRecord<any>('alerts', {
               Paciente: [patientId],
               Paciente_nombre: (patient as any).paciente,
-              Paso_incompleto: `${streak} inasistencias seguidas`,
+              Paso_incompleto: pasoIncompleto,
               ...(access.user.id.startsWith('rec') ? { Usuario: [access.user.id] } : {}),
               Usuario_nombre: access.user.nombre,
               Fecha_hora: new Date().toISOString(),
               Campos_faltantes: streak,
               Notificado: false,
             });
+
+            const sent = await sendAlertEmail({
+              pacienteNombre: (patient as any).paciente,
+              pasoIncompleto,
+              usuarioNombre: access.user.nombre,
+            });
+            if (sent) {
+              await updateRecord('alerts', newAlert.id, { Notificado: true });
+            }
           }
         } else if (oldEstado === 'No asistió' && newEstado !== 'No asistió') {
           await updateRecord('pacientes_2025_2026', patientId, {

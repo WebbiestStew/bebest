@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Navigation } from '@/components/Navigation';
 import { Toast } from '@/components/Toast';
@@ -13,6 +13,28 @@ import { ChartCard } from '@/components/charts/ChartCard';
 import { CATEGORICAL, MUTED_GRAY, ordinalStep } from '@/lib/chartColors';
 import { Skeleton } from '@/components/Skeleton';
 import { CountUp } from '@/components/CountUp';
+import { RawTableSection, RawTableSectionHandle } from '@/components/RawTableSection';
+
+// Every table in the base, in the same order as the tabs in Airtable itself.
+const AIRTABLE_TABLES = [
+  'LEEME',
+  'PACIENTES_2025_2026',
+  'PACIENTES_2025',
+  'PACIENTES_2026',
+  'ACTIVOS_FUERA_MUESTRA',
+  'BAJAS_FECHA_BAJA_2025_2026',
+  'REGISTRO_2025_2026_FILTRADO',
+  'SEGUIMIENTO_LIMPIO',
+  'CALIDAD_DATOS',
+  'PLANTILLA_CITAS',
+  'PLANTILLA_INGRESOS',
+  'RESUMEN',
+  'GRAFICAS',
+  'users',
+  'alerts',
+  'citas',
+  'sugerencias',
+];
 
 const MESES = [
   'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
@@ -52,6 +74,23 @@ export default function ReportesPage() {
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [year, setYear] = useState('todos');
   const [month, setMonth] = useState('todos');
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const rawTableRefs = useRef<Record<string, RawTableSectionHandle | null>>({});
+
+  const exportEverythingToPdf = async () => {
+    setIsExportingPdf(true);
+    try {
+      await Promise.all(
+        AIRTABLE_TABLES.map((table) => rawTableRefs.current[table]?.ensureLoaded('ambos'))
+      );
+      // Let entrance animations (bar charts grow on mount) settle before the
+      // print snapshot is taken, otherwise bars print at 0 height.
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      window.print();
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
 
   useEffect(() => {
     const fetchPatients = async () => {
@@ -183,9 +222,16 @@ export default function ReportesPage() {
               Estadísticas de {periodLabel.toLowerCase()} — generadas automáticamente, sin Excel de por medio.
             </p>
           </div>
-          <Button variant="secondary" className="print:hidden" onClick={() => window.print()}>
-            🖨 Imprimir
-          </Button>
+          <div className="flex items-center gap-2 print:hidden">
+            <Button variant="secondary" onClick={() => window.print()}>
+              🖨 Imprimir
+            </Button>
+            {isAdmin && (
+              <Button variant="secondary" onClick={exportEverythingToPdf} disabled={isExportingPdf}>
+                {isExportingPdf ? 'Preparando…' : '📄 Exportar todo (PDF)'}
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Filters */}
@@ -320,6 +366,28 @@ export default function ReportesPage() {
             >
               <VerticalBars data={mesData} axisLabelFormatter={(l) => MES_ABBR[l] || l} />
             </ChartCard>
+          </div>
+        )}
+
+        {isAdmin && (
+          <div className="mt-10 print:hidden">
+            <div className="mb-3">
+              <h2 className="font-serif text-2xl font-medium mb-1">Todas las tablas de Airtable</h2>
+              <p className="text-ink-soft text-sm">
+                Vista completa de la base, tabla por tabla — incluye las que no tienen su propia pantalla en la app.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              {AIRTABLE_TABLES.map((table) => (
+                <RawTableSection
+                  key={table}
+                  table={table}
+                  ref={(el) => {
+                    rawTableRefs.current[table] = el;
+                  }}
+                />
+              ))}
+            </div>
           </div>
         )}
       </main>

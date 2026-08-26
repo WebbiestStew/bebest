@@ -188,3 +188,44 @@ export async function getRecord<T>(
     return null;
   }
 }
+
+// Every table in the base, in the same order they appear as tabs in Airtable.
+// Kept as a fixed allowlist so any route exposing raw table data can't be made
+// to query an arbitrary/unintended table name.
+export const ALL_TABLE_NAMES = [
+  'LEEME',
+  'PACIENTES_2025_2026',
+  'PACIENTES_2025',
+  'PACIENTES_2026',
+  'ACTIVOS_FUERA_MUESTRA',
+  'BAJAS_FECHA_BAJA_2025_2026',
+  'REGISTRO_2025_2026_FILTRADO',
+  'SEGUIMIENTO_LIMPIO',
+  'CALIDAD_DATOS',
+  'PLANTILLA_CITAS',
+  'PLANTILLA_INGRESOS',
+  'RESUMEN',
+  'GRAFICAS',
+  'users',
+  'alerts',
+  'citas',
+  'sugerencias',
+] as const;
+
+// Returns field names in the table's actual column order (via the Meta API),
+// since plain records only include fields that have a value — the union of
+// keys across fetched rows isn't a reliable or stable column order.
+export async function getTableFieldOrder(table: string): Promise<string[]> {
+  const response = await fetch(
+    `${AIRTABLE_API_URL}/meta/bases/${BASE_ID}/tables`,
+    { headers }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Airtable Meta API error: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  const match = (data.tables || []).find((t: any) => t.name === table);
+  return match ? match.fields.map((f: any) => f.name) : [];
+}

@@ -14,7 +14,8 @@
     "jose": "^6.2.10",
     "next": "^14.2.3",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "resend": "^6.24.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.2",
