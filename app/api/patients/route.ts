@@ -5,15 +5,15 @@ import { Patient } from '@/lib/types';
 
 
 export async function GET(request: NextRequest) {
-  const user = getCurrentUserFromRequest(request);
+  const user = await getCurrentUserFromRequest(request);
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   try {
     let patients;
-    
-    if (isAdmin(request)) {
+
+    if (await isAdmin(request)) {
       // Admin sees all patients
       patients = await findRecords<Patient>('pacientes_2025_2026');
     } else {
@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const user = getCurrentUserFromRequest(request);
+  const user = await getCurrentUserFromRequest(request);
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     }
 
     // For regular users, they can only create patients assigned to themselves
-    const terapeuta = !isAdmin(request) ? user.nombre : (body.terapeuta || user.nombre);
+    const terapeuta = !(await isAdmin(request)) ? user.nombre : (body.terapeuta || user.nombre);
 
     const newPatient = await createRecord<Patient>('pacientes_2025_2026', {
       paciente: body.paciente,
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
-  const user = getCurrentUserFromRequest(request);
+  const user = await getCurrentUserFromRequest(request);
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -101,7 +101,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const patientAny = patient as any;
-    if (!isAdmin(request) && patientAny.terapeuta && patientAny.terapeuta !== user.nombre) {
+    if (!(await isAdmin(request)) && patientAny.terapeuta && patientAny.terapeuta !== user.nombre) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

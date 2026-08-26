@@ -7,7 +7,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const user = getCurrentUserFromRequest(request);
+  const user = await getCurrentUserFromRequest(request);
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -21,7 +21,7 @@ export async function GET(
 
     // Check permissions
     const patientAny = patient as any;
-    if (!isAdmin(request) && patientAny.terapeuta && patientAny.terapeuta !== user.nombre) {
+    if (!(await isAdmin(request)) && patientAny.terapeuta && patientAny.terapeuta !== user.nombre) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

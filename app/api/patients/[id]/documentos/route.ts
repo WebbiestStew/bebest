@@ -6,14 +6,14 @@ import { Patient } from '@/lib/types';
 const MAX_FILE_BYTES = 15 * 1024 * 1024; // 15MB
 
 async function checkAccess(request: NextRequest, patientId: string) {
-  const user = getCurrentUserFromRequest(request);
+  const user = await getCurrentUserFromRequest(request);
   if (!user) return { error: 'Unauthorized', status: 401 } as const;
 
   const patient = await getRecord<Patient>('pacientes_2025_2026', patientId);
   if (!patient) return { error: 'Paciente no encontrado', status: 404 } as const;
 
   const patientAny = patient as any;
-  if (!isAdmin(request) && patientAny.terapeuta && patientAny.terapeuta !== user.nombre) {
+  if (!(await isAdmin(request)) && patientAny.terapeuta && patientAny.terapeuta !== user.nombre) {
     return { error: 'Forbidden', status: 403 } as const;
   }
 

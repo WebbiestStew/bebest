@@ -8,13 +8,13 @@ const API_TOKEN = process.env.AIRTABLE_API_TOKEN;
 const NO_SHOW_ALERT_THRESHOLD = 2;
 
 async function checkAccess(request: NextRequest, citaId: string) {
-  const user = getCurrentUserFromRequest(request);
+  const user = await getCurrentUserFromRequest(request);
   if (!user) return { error: 'Unauthorized', status: 401 } as const;
 
   const cita = await getRecord<Cita>('citas', citaId);
   if (!cita) return { error: 'Cita no encontrada', status: 404 } as const;
 
-  if (!isAdmin(request) && (cita as any).terapeuta !== user.nombre) {
+  if (!(await isAdmin(request)) && (cita as any).terapeuta !== user.nombre) {
     return { error: 'Forbidden', status: 403 } as const;
   }
 

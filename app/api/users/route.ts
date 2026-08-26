@@ -5,7 +5,7 @@ import { User } from '@/lib/types';
 import { hashPassword } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
-  const user = getCurrentUserFromRequest(request);
+  const user = await getCurrentUserFromRequest(request);
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -34,8 +34,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const user = getCurrentUserFromRequest(request);
-  if (!user || !isAdmin(request)) {
+  const user = await getCurrentUserFromRequest(request);
+  if (!user || !(await isAdmin(request))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

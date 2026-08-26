@@ -4,14 +4,14 @@ import { createRecord, createRecords, findRecords } from '@/lib/airtable';
 import { Cita } from '@/lib/types';
 
 export async function GET(request: NextRequest) {
-  const user = getCurrentUserFromRequest(request);
+  const user = await getCurrentUserFromRequest(request);
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   try {
     let citas;
-    if (isAdmin(request)) {
+    if (await isAdmin(request)) {
       citas = await findRecords<Cita>('citas');
     } else {
       const filterFormula = `{terapeuta} = '${user.nombre}'`;
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const user = getCurrentUserFromRequest(request);
+  const user = await getCurrentUserFromRequest(request);
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Non-admins can only schedule appointments under their own name
-    const terapeuta = !isAdmin(request) ? user.nombre : body.terapeuta;
+    const terapeuta = !(await isAdmin(request)) ? user.nombre : body.terapeuta;
 
     const repeatWeeks = Math.min(Math.max(parseInt(body.repeatWeeks, 10) || 1, 1), 52);
     const baseFields = {

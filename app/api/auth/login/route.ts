@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyCredentials } from '@/lib/auth';
+import { createSessionToken } from '@/lib/session';
 
 export async function POST(req: NextRequest) {
   try {
@@ -26,15 +27,17 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
 
-    // Set a secure session cookie
-    const sessionData = JSON.stringify({
+    // Set a signed session cookie — a plain JSON cookie could be edited by
+    // the browser's own owner (e.g. to set rol: "admin"), so it's signed
+    // with a server-side secret and verified on every request.
+    const sessionToken = await createSessionToken({
       id: user.id,
       email: user.email,
       nombre: user.nombre,
       rol: user.rol,
     });
 
-    response.cookies.set('consulta_session', sessionData, {
+    response.cookies.set('consulta_session', sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',

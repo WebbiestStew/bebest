@@ -4,11 +4,11 @@ import { updateRecord } from '@/lib/airtable';
 import { Sugerencia } from '@/lib/types';
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const user = getCurrentUserFromRequest(request);
+  const user = await getCurrentUserFromRequest(request);
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  if (!isAdmin(request)) {
+  if (!(await isAdmin(request))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 

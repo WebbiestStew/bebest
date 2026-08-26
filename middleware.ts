@@ -1,35 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { hasAdminAccess } from '@/lib/roles';
+import { getCurrentUserFromRequest } from '@/lib/session';
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   // Auth endpoints must be reachable without an existing session
   if (request.nextUrl.pathname.startsWith('/api/auth')) {
     return NextResponse.next();
   }
 
-  const session = request.cookies.get('consulta_session');
+  const user = await getCurrentUserFromRequest(request);
 
-  // Protect all routes except /login
-  if (!session && request.nextUrl.pathname !== '/login') {
+  // Protect all routes except /login. A present-but-invalid/tampered/expired
+  // cookie is treated the same as no session at all.
+  if (!user && request.nextUrl.pathname !== '/login') {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
   // Redirect logged-in users away from /login
-  if (session && request.nextUrl.pathname === '/login') {
+  if (user && request.nextUrl.pathname === '/login') {
     return NextResponse.redirect(new URL('/', request.url));
   }
 
   // Check admin routes
   if (request.nextUrl.pathname.startsWith('/admin') || request.nextUrl.pathname === '/alertas') {
-    if (session) {
-      try {
-        const sessionData = JSON.parse(session.value);
-        if (!hasAdminAccess(sessionData.rol)) {
-          return NextResponse.redirect(new URL('/', request.url));
-        }
-      } catch (error) {
-        return NextResponse.redirect(new URL('/login', request.url));
-      }
+    if (user && !hasAdminAccess(user.rol)) {
+      return NextResponse.redirect(new URL('/', request.url));
     }
   }
 

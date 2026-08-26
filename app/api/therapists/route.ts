@@ -7,7 +7,7 @@ import { Patient } from '@/lib/types';
 // of the requesting user's role — used to populate "assign a therapist" pickers,
 // which need every therapist, not just the ones assigned to the current viewer.
 export async function GET(request: NextRequest) {
-  const user = getCurrentUserFromRequest(request);
+  const user = await getCurrentUserFromRequest(request);
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
