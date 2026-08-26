@@ -1,0 +1,281 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Navigation } from '@/components/Navigation';
+import { Toast } from '@/components/Toast';
+import { Button, BackButton } from '@/components/Button';
+import { Input, Select } from '@/components/FormInputs';
+import { useAuth } from '@/lib/useAuth';
+import { Skeleton } from '@/components/Skeleton';
+import { hasAdminAccess, roleLabel } from '@/lib/roles';
+
+interface FormErrors {
+  nombre?: string;
+  email?: string;
+  password?: string;
+}
+
+function initials(name: string) {
+  return (name || '')
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase())
+    .join('');
+}
+
+export default function AdminUsuariosPage() {
+  const { user, isLoading } = useAuth();
+  const router = useRouter();
+  const [users, setUsers] = useState<any[]>([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errors, setErrors] = useState<FormErrors>({});
+  const [formData, setFormData] = useState({
+    nombre: '',
+    email: '',
+    password: '',
+    rol: 'user',
+  });
+
+  const fetchUsers = async () => {
+    try {
+      const res = await fetch('/api/users');
+      const data = await res.json();
+      // The primary admin account is hardcoded (not stored in Airtable), so it
+      // never comes back from /api/users — prepend it here for a complete list.
+      const primaryAdmin = {
+        id: 'admin_001',
+        Nombre: 'Diego',
+        Email: 'diego@bebest.com',
+        Rol: 'admin',
+        isPrimary: true,
+      };
+      setUsers([primaryAdmin, ...(data.users || [])]);
+    } catch (error) {
+      console.error('Error fetching users:', error);
+    } finally {
+      setIsLoadingUsers(false);
+    }
+  };
+
+  useEffect(() => {
+    if (hasAdminAccess(user?.rol)) fetchUsers();
+  }, [user]);
+
+  if (isLoading) return null;
+  if (!user || !hasAdminAccess(user.rol)) return null;
+
+  const validateForm = () => {
+    const newErrors: FormErrors = {};
+    if (!formData.nombre.trim()) newErrors.nombre = 'Este campo es obligatorio.';
+    if (!formData.email.trim()) newErrors.email = 'Este campo es obligatorio.';
+    if (!formData.password.trim()) newErrors.password = 'Este campo es obligatorio.';
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validateForm()) return;
+
+    setIsSubmitting(true);
+    try {
+      const response = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nombre: formData.nombre.trim(),
+          email: formData.email.trim(),
+          password: formData.password,
+          rol: formData.rol,
+        }),
+      });
+
+      if (response.ok) {
+        window.dispatchEvent(
+          new CustomEvent('showToast', {
+            detail: { message: `Usuario "${formData.nombre}" creado correctamente.`, isError: false },
+          })
+        );
+        setFormData({ nombre: '', email: '', password: '', rol: 'user' });
+        fetchUsers();
+      } else {
+        const error = await response.json();
+        window.dispatchEvent(
+          new CustomEvent('showToast', {
+            detail: { message: error.error || 'Error al crear usuario', isError: true },
+          })
+        );
+      }
+    } catch (error) {
+      window.dispatchEvent(
+        new CustomEvent('showToast', {
+          detail: { message: 'Error al crear usuario', isError: true },
+        })
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col md:flex-row h-screen bg-bg">
+      <Navigation user={user} />
+
+      <main className="flex-1 overflow-auto p-4 sm:p-8 lg:p-12 max-w-3xl">
+        <BackButton onClick={() => router.push('/')} />
+
+        <div className="mb-8 animate-fade-in-up">
+          <div className="text-sm font-mono text-sage-deep uppercase tracking-widest mb-2">Administración</div>
+          <h1 className="font-serif text-4xl font-medium mb-2">Usuarios</h1>
+          <p className="text-ink-soft text-base">Todas las cuentas con acceso al sistema.</p>
+        </div>
+
+        {/* Existing users */}
+        <div
+          className="bg-panel border border-line rounded-lg overflow-hidden mb-10 animate-fade-in-up"
+          style={{ animationDelay: '60ms' }}
+        >
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[480px]">
+            <thead>
+              <tr className="border-b border-line">
+                <th className="text-left text-xs font-medium text-ink-soft uppercase letter-spacing px-4 py-3 bg-gray-50">
+                  Nombre
+                </th>
+                <th className="text-left text-xs font-medium text-ink-soft uppercase letter-spacing px-4 py-3 bg-gray-50">
+                  Correo
+                </th>
+                <th className="text-left text-xs font-medium text-ink-soft uppercase letter-spacing px-4 py-3 bg-gray-50">
+                  Rol
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoadingUsers ? (
+                Array.from({ length: 3 }).map((_, i) => (
+                  <tr key={i} className="border-b border-line last:border-0">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <Skeleton className="w-8 h-8 rounded-full shrink-0" />
+                        <Skeleton className="h-3.5 w-32" />
+                      </div>
+                    </td>
+                    <td className="px-4 py-3"><Skeleton className="h-3.5 w-40" /></td>
+                    <td className="px-4 py-3"><Skeleton className="h-5 w-24 rounded-full" /></td>
+                  </tr>
+                ))
+              ) : users.length === 0 ? (
+                <tr>
+                  <td colSpan={3} className="text-center text-ink-soft py-8">
+                    No hay usuarios registrados
+                  </td>
+                </tr>
+              ) : (
+                users.map((u, i) => (
+                  <tr
+                    key={u.id}
+                    className="border-b border-line last:border-0 hover:bg-sage-pale/30 transition-colors duration-150 animate-fade-in-up"
+                    style={{ animationDelay: `${Math.min(i, 10) * 30}ms` }}
+                  >
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-sage-pale text-sage-deep flex items-center justify-center text-xs font-mono font-medium shrink-0">
+                          {initials(u.Nombre)}
+                        </div>
+                        <span className="text-sm font-medium text-ink">
+                          {u.Nombre}
+                          {u.isPrimary && (
+                            <span className="ml-2 text-xs text-ink-soft font-normal">(cuenta principal)</span>
+                          )}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-ink-soft">{u.Email}</td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`inline-block px-3 py-1 rounded-full text-xs font-mono ${
+                          u.Rol === 'admin'
+                            ? 'bg-clay-pale text-clay'
+                            : u.Rol === 'developer'
+                            ? 'bg-blue/10 text-blue'
+                            : 'bg-sage-pale text-sage-deep'
+                        }`}
+                      >
+                        {roleLabel(u.Rol)}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+          </div>
+        </div>
+
+        {/* Create user */}
+        <div className="mb-6 animate-fade-in-up" style={{ animationDelay: '100ms' }}>
+          <h2 className="font-serif text-2xl font-medium mb-1">Crear nuevo usuario</h2>
+          <p className="text-ink-soft text-sm">Agrega nuevos psicólogos o administradores al sistema.</p>
+        </div>
+
+        <form
+          onSubmit={handleSubmit}
+          className="bg-panel border border-line rounded-2xl p-8 space-y-6 animate-fade-in-up"
+          style={{ animationDelay: '140ms' }}
+        >
+          <Input
+            label="Nombre completo"
+            placeholder="Luis Medina"
+            value={formData.nombre}
+            onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+            error={errors.nombre}
+            required
+          />
+
+          <Input
+            label="Correo electrónico"
+            type="email"
+            placeholder="luis@consulta.com"
+            value={formData.email}
+            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+            error={errors.email}
+            required
+          />
+
+          <Input
+            label="Contraseña temporal"
+            type="password"
+            placeholder="••••••••"
+            value={formData.password}
+            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+            error={errors.password}
+            required
+          />
+
+          <Select
+            label="Rol"
+            options={[
+              { value: 'user', label: 'Psicólogo' },
+              { value: 'admin', label: 'Administrador' },
+              { value: 'developer', label: 'Desarrollador (mismos permisos que Administrador)' },
+            ]}
+            value={formData.rol}
+            onChange={(e) => setFormData({ ...formData, rol: e.target.value })}
+          />
+
+          <div className="flex items-center gap-4 p-6 -m-8 border-t border-line bg-gray-50">
+            <Button type="submit" variant="primary" isLoading={isSubmitting} disabled={isSubmitting}>
+              Crear usuario
+            </Button>
+            <span className="text-xs text-ink-soft ml-auto">El usuario podrá cambiar su contraseña en el primer Login</span>
+          </div>
+        </form>
+      </main>
+
+      <Toast/>
+    </div>
+  );
+}
