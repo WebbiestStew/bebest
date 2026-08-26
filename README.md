@@ -62,8 +62,8 @@ npm run dev
 Abre [http://localhost:3000](http://localhost:3000)
 
 **Credenciales de demo:**
-- Email: `admin@consulta.com`
-- Password: `demo123`
+- Email: ``
+- Password: ``
 
 ## 📋 Tablas de Airtable
 
