@@ -16,18 +16,20 @@ export function Button({
   size?: 'sm' | 'md' | 'lg';
   isLoading?: boolean;
 }) {
-  const baseClasses = 'font-sans font-medium rounded-lg transition-all duration-200 ease-out inline-flex items-center justify-center gap-2 active:scale-95';
+  const baseClasses =
+    'font-sans font-semibold rounded-xl transition-all duration-150 ease-out inline-flex items-center justify-center gap-2 active:scale-[0.97] select-none';
 
   const variantClasses = {
-    primary: 'bg-sage-deep text-white shadow-sm hover:bg-opacity-90 hover:shadow-md hover:-translate-y-0.5',
+    primary:
+      'bg-sage-deep text-white shadow-[0_2px_0_0_rgba(0,0,0,0.12),0_4px_10px_-2px_rgba(76,107,81,0.35)] hover:bg-opacity-90 hover:shadow-[0_2px_0_0_rgba(0,0,0,0.12),0_8px_16px_-4px_rgba(76,107,81,0.45)] hover:-translate-y-0.5 active:shadow-[0_0px_0_0_rgba(0,0,0,0.12)] active:translate-y-0',
     secondary:
-      'border border-line text-ink-soft bg-transparent hover:bg-panel hover:border-sage hover:text-sage-deep hover:-translate-y-0.5 hover:shadow-sm',
+      'border-2 border-line text-ink-soft bg-panel hover:bg-sage-pale/40 hover:border-sage hover:text-sage-deep hover:-translate-y-0.5 hover:shadow-md active:translate-y-0',
   };
 
   const sizeClasses = {
-    sm: 'px-3 py-2 text-sm',
-    md: 'px-6 py-3 text-base',
-    lg: 'px-8 py-4 text-lg',
+    sm: 'px-4 py-2.5 text-sm min-h-[40px]',
+    md: 'px-7 py-3.5 text-base min-h-[48px]',
+    lg: 'px-9 py-[18px] text-lg min-h-[56px]',
   };
 
   return (

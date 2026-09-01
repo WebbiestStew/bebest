@@ -1,35 +1,109 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { Navigation } from '@/components/Navigation';
 import { Toast } from '@/components/Toast';
 import { Button, BackButton } from '@/components/Button';
-import { Input, Select, Textarea } from '@/components/FormInputs';
+import { Input, Select, Checkbox } from '@/components/FormInputs';
 import { useAuth } from '@/lib/useAuth';
-import { useEffect } from 'react';
+import { fileToBase64, serializeMotivoConsulta } from '@/lib/utils';
 
-interface FormErrors {
-  nombre?: string;
-  telefono?: string;
-  terapeuta?: string;
-  fecha_cita?: string;
-  motivo?: string;
-}
+const SEXO_OPTIONS = ['Masculino', 'Femenino', 'Prefiero no decirlo'];
+const ESTADO_CIVIL_OPTIONS = ['Soltero/a', 'Casado/a', 'Divorciado/a', 'Viudo/a', 'Unión Libre', 'Otros'];
+const RELACION_OPTIONS = ['Padre', 'Madre', 'Hermano/a', 'Pareja', 'Amigo/a', 'Tutor', 'Otros'];
+const MOTIVO_SOLICITUD_OPTIONS = [
+  'Solicitud por parte del Psiquiatra',
+  'Solicitud por parte de mi trabajo',
+  'Solicitud por iniciativa propia',
+  'Solicitud por parte de mi pareja/familia',
+  'Otros',
+];
+const PROFESIONAL_TIPO_OPTIONS = ['Psiquiatra', 'Neurólogo', 'Nutriólogo', 'Otros'];
+const ENTERO_OPTIONS = [
+  'Recomendación de un familiar/amigo',
+  'Facebook',
+  'Instagram',
+  'Google',
+  'Página web',
+  'Anuncio/panorámico',
+  'Otro',
+];
+const PROBLEMAS_OPTIONS = [
+  'Ansiedad/ataques de pánico',
+  'Problemas de regulación emocional',
+  'Control de impulsos',
+  'Duelo (pérdida de un familiar, mascota)',
+  'Tristeza persistente',
+  'Problemas de baja tolerancia a la frustración',
+  'Baja Autoestima',
+  'Culpa',
+  'Miedos/Fobias',
+  'Trastorno Obsesivo Compulsivo',
+  'Dificultades en la interacción social',
+  'Problemas en la relación de pareja',
+  'Problemas en relaciones familiares',
+  'Autolesiones/conductas suicidas',
+  'Problemas laborales/Estrés laboral',
+  'Falta de motivación',
+  'Situaciones de violencia/abuso',
+  'Problemas de hábitos (Sueño/alimentación)',
+  'Tics/hábitos nerviosos',
+  'Dependencia afectiva',
+  'Problemas de procrastinación',
+  'Problemas en la temática de la sexualidad',
+  'Crisis existencial/falta de sentido de vida',
+];
+
+// Only these motivo_solicitud answers show the "profesional que canaliza"
+// section — matches the real form's "Ir a la pregunta 28" skip logic.
+const MUESTRA_SECCION_PROFESIONAL = ['Solicitud por parte del Psiquiatra', 'Otros'];
 
 export default function RegistroPage() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
   const [therapists, setTherapists] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errors, setErrors] = useState<FormErrors>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [ineFile, setIneFile] = useState<File | null>(null);
+  const [contratoFile, setContratoFile] = useState<File | null>(null);
+  const [problemas, setProblemas] = useState<string[]>([]);
+
   const [formData, setFormData] = useState({
-    nombre: '',
-    telefono: '',
     terapeuta: '',
     fecha_cita: '',
-    motivo: '',
+    nombre: '',
+    fecha_nacimiento: '',
+    edad: '',
+    sexo: '',
+    estado_civil: '',
+    estado_civil_otro: '',
+    ocupacion: '',
+    email: '',
+    telefono: '',
+    calle: '',
+    numero_ext_int: '',
+    colonia: '',
+    municipio: '',
+    estado_direccion: '',
+    pais: '',
+    contacto_emergencia_nombre: '',
+    contacto_emergencia_email: '',
+    contacto_emergencia_telefono: '',
+    contacto_emergencia_relacion: '',
+    contacto_emergencia_relacion_otro: '',
+    problemasOtro: '',
+    motivo_solicitud: '',
+    motivo_solicitud_otro: '',
+    profesional_nombre: '',
+    profesional_tipo: '',
+    profesional_tipo_otro: '',
+    profesional_telefono: '',
+    profesional_email: '',
+    profesional_autoriza: '',
+    entero: '',
+    enteroDetalle: '',
+    contratoAceptado: false,
   });
 
   useEffect(() => {
@@ -51,20 +125,86 @@ export default function RegistroPage() {
   if (isLoading) return null;
   if (!user) return null;
 
-  const validateForm = () => {
-    const newErrors: FormErrors = {};
-    if (!formData.nombre.trim()) newErrors.nombre = 'Este campo es obligatorio.';
-    if (!formData.telefono.trim()) newErrors.telefono = 'Este campo es obligatorio.';
-    if (!formData.terapeuta) newErrors.terapeuta = 'Este campo es obligatorio.';
-    if (!formData.fecha_cita) newErrors.fecha_cita = 'Este campo es obligatorio.';
-    if (!formData.motivo.trim()) newErrors.motivo = 'Este campo es obligatorio.';
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+  const showProfesional = MUESTRA_SECCION_PROFESIONAL.includes(formData.motivo_solicitud);
+
+  const toggleProblema = (value: string) => {
+    setProblemas((prev) => (prev.includes(value) ? prev.filter((p) => p !== value) : [...prev, value]));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const required = (v: string) => (v.trim() ? undefined : 'Este campo es obligatorio.');
+
+  const validateForm = () => {
+    const e: Record<string, string | undefined> = {};
+    e.terapeuta = required(formData.terapeuta);
+    e.fecha_cita = required(formData.fecha_cita);
+    e.nombre = required(formData.nombre);
+    e.fecha_nacimiento = required(formData.fecha_nacimiento);
+    e.edad = required(formData.edad);
+    e.sexo = required(formData.sexo);
+    e.estado_civil = required(formData.estado_civil);
+    if (formData.estado_civil === 'Otros') e.estado_civil_otro = required(formData.estado_civil_otro);
+    e.ocupacion = required(formData.ocupacion);
+    e.email = required(formData.email);
+    e.telefono = required(formData.telefono);
+    e.calle = required(formData.calle);
+    e.numero_ext_int = required(formData.numero_ext_int);
+    e.colonia = required(formData.colonia);
+    e.municipio = required(formData.municipio);
+    e.estado_direccion = required(formData.estado_direccion);
+    e.pais = required(formData.pais);
+    if (!ineFile) e.ine = 'Agrega la copia del INE (ambos lados).';
+    e.contacto_emergencia_nombre = required(formData.contacto_emergencia_nombre);
+    e.contacto_emergencia_email = required(formData.contacto_emergencia_email);
+    e.contacto_emergencia_telefono = required(formData.contacto_emergencia_telefono);
+    e.contacto_emergencia_relacion = required(formData.contacto_emergencia_relacion);
+    if (formData.contacto_emergencia_relacion === 'Otros') {
+      e.contacto_emergencia_relacion_otro = required(formData.contacto_emergencia_relacion_otro);
+    }
+    if (problemas.length === 0) e.problemas = 'Selecciona al menos una opción.';
+    if (problemas.includes('Otros')) e.problemasOtro = required(formData.problemasOtro);
+    e.motivo_solicitud = required(formData.motivo_solicitud);
+    if (formData.motivo_solicitud === 'Otros') e.motivo_solicitud_otro = required(formData.motivo_solicitud_otro);
+    if (showProfesional) {
+      e.profesional_nombre = required(formData.profesional_nombre);
+      e.profesional_tipo = required(formData.profesional_tipo);
+      if (formData.profesional_tipo === 'Otros') e.profesional_tipo_otro = required(formData.profesional_tipo_otro);
+      e.profesional_telefono = required(formData.profesional_telefono);
+      if (!formData.profesional_autoriza) e.profesional_autoriza = 'Este campo es obligatorio.';
+    }
+    e.entero = required(formData.entero);
+    if (formData.entero === 'Recomendación de un familiar/amigo' || formData.entero === 'Otro') {
+      e.enteroDetalle = required(formData.enteroDetalle);
+    }
+    if (!formData.contratoAceptado) e.contratoAceptado = 'Debes leer y aceptar el contrato terapéutico.';
+
+    const cleaned = Object.fromEntries(Object.entries(e).filter(([, v]) => v)) as Record<string, string>;
+    setErrors(cleaned);
+    return Object.keys(cleaned).length === 0;
+  };
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
     if (!validateForm()) return;
+
+    const problemasFinal = [...problemas.filter((p) => p !== 'Otros')];
+    if (problemas.includes('Otros')) problemasFinal.push(`Otros: ${formData.problemasOtro.trim()}`);
+
+    const estadoCivilFinal =
+      formData.estado_civil === 'Otros' ? `Otros: ${formData.estado_civil_otro.trim()}` : formData.estado_civil;
+    const relacionFinal =
+      formData.contacto_emergencia_relacion === 'Otros'
+        ? `Otros: ${formData.contacto_emergencia_relacion_otro.trim()}`
+        : formData.contacto_emergencia_relacion;
+    const motivoSolicitudFinal =
+      formData.motivo_solicitud === 'Otros'
+        ? `Otros: ${formData.motivo_solicitud_otro.trim()}`
+        : formData.motivo_solicitud;
+    const profesionalTipoFinal =
+      formData.profesional_tipo === 'Otros' ? `Otros: ${formData.profesional_tipo_otro.trim()}` : formData.profesional_tipo;
+    const enteroFinal =
+      formData.entero === 'Recomendación de un familiar/amigo' || formData.entero === 'Otro'
+        ? `${formData.entero}: ${formData.enteroDetalle.trim()}`
+        : formData.entero;
 
     setIsSubmitting(true);
     try {
@@ -76,7 +216,35 @@ export default function RegistroPage() {
           telefono: formData.telefono.trim(),
           terapeuta: formData.terapeuta,
           fecha_ingreso: formData.fecha_cita,
-          motivo_consulta: formData.motivo.trim(),
+          motivo_consulta: serializeMotivoConsulta(problemasFinal),
+          edad: parseInt(formData.edad, 10),
+          fecha_nacimiento: formData.fecha_nacimiento,
+          sexo: formData.sexo.toUpperCase(),
+          estado_civil: estadoCivilFinal,
+          ocupacion: formData.ocupacion.trim(),
+          email: formData.email.trim(),
+          calle: formData.calle.trim(),
+          numero_ext_int: formData.numero_ext_int.trim(),
+          colonia: formData.colonia.trim(),
+          municipio: formData.municipio.trim(),
+          estado_direccion: formData.estado_direccion.trim(),
+          pais: formData.pais.trim(),
+          contacto_emergencia_nombre: formData.contacto_emergencia_nombre.trim(),
+          contacto_emergencia_email: formData.contacto_emergencia_email.trim(),
+          contacto_emergencia_telefono: formData.contacto_emergencia_telefono.trim(),
+          contacto_emergencia_relacion: relacionFinal,
+          motivo_solicitud: motivoSolicitudFinal,
+          ...(showProfesional
+            ? {
+                profesional_nombre: formData.profesional_nombre.trim(),
+                profesional_tipo: profesionalTipoFinal,
+                profesional_telefono: formData.profesional_telefono.trim(),
+                profesional_email: formData.profesional_email.trim(),
+                profesional_autoriza_contacto: formData.profesional_autoriza === 'Sí',
+              }
+            : {}),
+          como_se_entero: enteroFinal,
+          contrato_terapeutico_aceptado: formData.contratoAceptado,
           estatus_en_registro: 'ACTIVO',
           etapa_actual: 'Primer contacto',
           expediente_completo: true,
@@ -84,6 +252,29 @@ export default function RegistroPage() {
       });
 
       if (response.ok) {
+        const data = await response.json();
+
+        const uploadDoc = async (file: File) => {
+          try {
+            const base64 = await fileToBase64(file);
+            await fetch(`/api/patients/${data.patient.id}/documentos`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                filename: file.name,
+                contentType: file.type || 'application/octet-stream',
+                base64,
+              }),
+            });
+          } catch {
+            // Patient is already saved — a failed upload shouldn't block the
+            // registration; the file can be added later from the patient page.
+          }
+        };
+
+        if (ineFile) await uploadDoc(ineFile);
+        if (contratoFile) await uploadDoc(contratoFile);
+
         window.dispatchEvent(
           new CustomEvent('showToast', {
             detail: { message: 'Ficha guardada correctamente.', isError: false },
@@ -119,17 +310,9 @@ export default function RegistroPage() {
         <div className="mb-8 animate-fade-in-up">
           <div className="text-sm font-mono text-sage-deep uppercase tracking-widest mb-2">Primer contacto</div>
           <h1 className="font-serif text-4xl font-medium mb-2">Ficha de Registro</h1>
-          <p className="text-ink-soft text-base">Llena esto la primera vez que un paciente agenda cita.</p>
-        </div>
-
-        <div
-          className="bg-sage-pale border border-sage rounded-lg p-4 mb-6 flex gap-2 animate-fade-in-up"
-          style={{ animationDelay: '60ms' }}
-        >
-          <span className="text-lg">💡</span>
-          <div className="text-sm text-sage-deep">
-            Todos los campos son obligatorios — no podrás guardar hasta completarlos.
-          </div>
+          <p className="text-ink-soft text-base">
+            Registro inicial de pacientes adultos — llénala la primera vez que un paciente agenda cita.
+          </p>
         </div>
 
         <form
@@ -137,26 +320,6 @@ export default function RegistroPage() {
           className="bg-panel border border-line rounded-2xl p-8 space-y-6 animate-fade-in-up"
           style={{ animationDelay: '110ms' }}
         >
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            <Input
-              label="Nombre completo del paciente"
-              placeholder="Nombre y apellidos"
-              value={formData.nombre}
-              onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
-              error={errors.nombre}
-              required
-            />
-            <Input
-              label="Teléfono de contacto"
-              type="tel"
-              placeholder="55 0000 0000"
-              value={formData.telefono}
-              onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
-              error={errors.telefono}
-              required
-            />
-          </div>
-
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <Select
               label="Terapeuta asignado"
@@ -167,7 +330,7 @@ export default function RegistroPage() {
               required
             />
             <Input
-              label="Fecha de la cita (Agenda)"
+              label="Fecha de registro"
               type="date"
               value={formData.fecha_cita}
               onChange={(e) => setFormData({ ...formData, fecha_cita: e.target.value })}
@@ -176,14 +339,416 @@ export default function RegistroPage() {
             />
           </div>
 
-          <Textarea
-            label="Motivo de consulta"
-            placeholder="¿Qué trae al paciente a consulta?"
-            value={formData.motivo}
-            onChange={(e) => setFormData({ ...formData, motivo: e.target.value })}
-            error={errors.motivo}
-            required
-          />
+          {/* Datos del cliente */}
+          <div className="border-t border-line pt-6 space-y-6">
+            <h3 className="text-sm font-medium text-ink">Datos del cliente</h3>
+
+            <Input
+              label="Nombre completo"
+              placeholder="Nombres y apellidos"
+              value={formData.nombre}
+              onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+              error={errors.nombre}
+              required
+            />
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              <Input
+                label="Fecha de nacimiento"
+                type="date"
+                value={formData.fecha_nacimiento}
+                onChange={(e) => setFormData({ ...formData, fecha_nacimiento: e.target.value })}
+                error={errors.fecha_nacimiento}
+                required
+              />
+              <Input
+                label="Edad"
+                type="number"
+                min={0}
+                placeholder="Edad"
+                value={formData.edad}
+                onChange={(e) => setFormData({ ...formData, edad: e.target.value })}
+                error={errors.edad}
+                required
+              />
+            </div>
+
+            <Select
+              label="Sexo"
+              options={SEXO_OPTIONS.map((s) => ({ value: s, label: s }))}
+              value={formData.sexo}
+              onChange={(e) => setFormData({ ...formData, sexo: e.target.value })}
+              error={errors.sexo}
+              required
+            />
+
+            <div>
+              <Select
+                label="Estado Civil"
+                options={ESTADO_CIVIL_OPTIONS.map((o) => ({ value: o, label: o }))}
+                value={formData.estado_civil}
+                onChange={(e) => setFormData({ ...formData, estado_civil: e.target.value })}
+                error={errors.estado_civil}
+                required
+              />
+              {formData.estado_civil === 'Otros' && (
+                <div className="mt-4">
+                  <Input
+                    label="Especifica"
+                    value={formData.estado_civil_otro}
+                    onChange={(e) => setFormData({ ...formData, estado_civil_otro: e.target.value })}
+                    error={errors.estado_civil_otro}
+                  />
+                </div>
+              )}
+            </div>
+
+            <Input
+              label="Profesión/ocupación"
+              value={formData.ocupacion}
+              onChange={(e) => setFormData({ ...formData, ocupacion: e.target.value })}
+              error={errors.ocupacion}
+              required
+            />
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              <Input
+                label="Correo electrónico"
+                type="email"
+                placeholder="correo@ejemplo.com"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                error={errors.email}
+                required
+              />
+              <Input
+                label="Número de teléfono"
+                type="tel"
+                placeholder="55 0000 0000"
+                value={formData.telefono}
+                onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
+                error={errors.telefono}
+                required
+              />
+            </div>
+          </div>
+
+          {/* Domicilio */}
+          <div className="border-t border-line pt-6 space-y-6">
+            <h3 className="text-sm font-medium text-ink">Domicilio</h3>
+
+            <Input
+              label="Calle"
+              value={formData.calle}
+              onChange={(e) => setFormData({ ...formData, calle: e.target.value })}
+              error={errors.calle}
+              required
+            />
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              <Input
+                label="Número exterior/interior"
+                value={formData.numero_ext_int}
+                onChange={(e) => setFormData({ ...formData, numero_ext_int: e.target.value })}
+                error={errors.numero_ext_int}
+                required
+              />
+              <Input
+                label="Colonia"
+                value={formData.colonia}
+                onChange={(e) => setFormData({ ...formData, colonia: e.target.value })}
+                error={errors.colonia}
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              <Input
+                label="Municipio"
+                value={formData.municipio}
+                onChange={(e) => setFormData({ ...formData, municipio: e.target.value })}
+                error={errors.municipio}
+                required
+              />
+              <Input
+                label="Estado"
+                value={formData.estado_direccion}
+                onChange={(e) => setFormData({ ...formData, estado_direccion: e.target.value })}
+                error={errors.estado_direccion}
+                required
+              />
+            </div>
+
+            <Input
+              label="País"
+              value={formData.pais}
+              onChange={(e) => setFormData({ ...formData, pais: e.target.value })}
+              error={errors.pais}
+              required
+            />
+
+            <div>
+              <label className="text-sm font-medium text-ink-soft mb-2 block">
+                Agregar copia de su INE por ambos lados
+                <span className="text-clay ml-1">*</span>
+              </label>
+              <label className="flex items-center justify-center gap-2 px-4 py-3 border border-dashed border-line rounded-lg text-sm text-ink-soft cursor-pointer transition-colors duration-150 hover:bg-sage-pale/30 hover:border-sage">
+                {ineFile ? <>📄 {ineFile.name} — cambiar archivo</> : '📎 Subir INE (PDF o foto)'}
+                <input
+                  type="file"
+                  accept="application/pdf,image/*"
+                  className="hidden"
+                  onChange={(e) => setIneFile(e.target.files?.[0] || null)}
+                />
+              </label>
+              {errors.ine && <div className="text-xs text-red mt-1">{errors.ine}</div>}
+            </div>
+          </div>
+
+          {/* Contacto de emergencia */}
+          <div className="border-t border-line pt-6 space-y-6">
+            <div>
+              <h3 className="text-sm font-medium text-ink mb-1">Datos de contacto de Emergencia</h3>
+              <p className="text-xs text-ink-soft">
+                Se le llamará en caso de que el/la paciente presente una crisis o en caso de necesitar romper la
+                confidencialidad por motivos psicoterapéuticos.
+              </p>
+            </div>
+
+            <Input
+              label="Nombre completo del contacto de emergencia"
+              value={formData.contacto_emergencia_nombre}
+              onChange={(e) => setFormData({ ...formData, contacto_emergencia_nombre: e.target.value })}
+              error={errors.contacto_emergencia_nombre}
+              required
+            />
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              <Input
+                label="Correo electrónico"
+                type="email"
+                value={formData.contacto_emergencia_email}
+                onChange={(e) => setFormData({ ...formData, contacto_emergencia_email: e.target.value })}
+                error={errors.contacto_emergencia_email}
+                required
+              />
+              <Input
+                label="Teléfono de contacto"
+                type="tel"
+                value={formData.contacto_emergencia_telefono}
+                onChange={(e) => setFormData({ ...formData, contacto_emergencia_telefono: e.target.value })}
+                error={errors.contacto_emergencia_telefono}
+                required
+              />
+            </div>
+
+            <div>
+              <Select
+                label="Tipo de relación con el cliente"
+                options={RELACION_OPTIONS.map((o) => ({ value: o, label: o }))}
+                value={formData.contacto_emergencia_relacion}
+                onChange={(e) => setFormData({ ...formData, contacto_emergencia_relacion: e.target.value })}
+                error={errors.contacto_emergencia_relacion}
+                required
+              />
+              {formData.contacto_emergencia_relacion === 'Otros' && (
+                <div className="mt-4">
+                  <Input
+                    label="Especifica"
+                    value={formData.contacto_emergencia_relacion_otro}
+                    onChange={(e) =>
+                      setFormData({ ...formData, contacto_emergencia_relacion_otro: e.target.value })
+                    }
+                    error={errors.contacto_emergencia_relacion_otro}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Motivo de consulta */}
+          <div className="border-t border-line pt-6 space-y-4">
+            <div>
+              <h3 className="text-sm font-medium text-ink mb-1">Motivo de consulta</h3>
+              <p className="text-xs text-ink-soft">
+                * El CPCCM no es un centro especializado en Trastornos de la Conducta Alimentaria, Adicciones,
+                Esquizofrenia, Autismo, Trastornos de Aprendizaje o del Neurodesarrollo, por lo que en caso de que
+                el motivo esté relacionado con alguna de estas problemáticas se derivará al especialista
+                correspondiente.
+              </p>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-ink-soft mb-2 block">
+                ¿Cuáles de los siguientes problemas les preocupan?
+                <span className="text-clay ml-1">*</span>
+                <span className="font-normal text-xs text-ink-soft ml-2">(puede seleccionar más de una opción)</span>
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 border border-line rounded-lg overflow-hidden">
+                {PROBLEMAS_OPTIONS.map((p) => (
+                  <Checkbox
+                    key={p}
+                    label={p}
+                    checked={problemas.includes(p)}
+                    onChange={() => toggleProblema(p)}
+                  />
+                ))}
+                <Checkbox label="Otros" checked={problemas.includes('Otros')} onChange={() => toggleProblema('Otros')} />
+              </div>
+              {errors.problemas && <div className="text-xs text-red mt-1">{errors.problemas}</div>}
+              {problemas.includes('Otros') && (
+                <div className="mt-4">
+                  <Input
+                    label="Especifica"
+                    value={formData.problemasOtro}
+                    onChange={(e) => setFormData({ ...formData, problemasOtro: e.target.value })}
+                    error={errors.problemasOtro}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div>
+              <Select
+                label="¿Qué motivó la solicitud de la consulta?"
+                options={MOTIVO_SOLICITUD_OPTIONS.map((o) => ({ value: o, label: o }))}
+                value={formData.motivo_solicitud}
+                onChange={(e) => setFormData({ ...formData, motivo_solicitud: e.target.value })}
+                error={errors.motivo_solicitud}
+                required
+              />
+              {formData.motivo_solicitud === 'Otros' && (
+                <div className="mt-4">
+                  <Input
+                    label="Especifica"
+                    value={formData.motivo_solicitud_otro}
+                    onChange={(e) => setFormData({ ...formData, motivo_solicitud_otro: e.target.value })}
+                    error={errors.motivo_solicitud_otro}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Datos del profesional de la salud — condicional */}
+          {showProfesional && (
+            <div className="border-t border-line pt-6 space-y-6">
+              <div>
+                <h3 className="text-sm font-medium text-ink mb-1">Datos del profesional de la salud</h3>
+                <p className="text-xs text-ink-soft">Profesional de la salud que canalizó al CPCCM.</p>
+              </div>
+
+              <Input
+                label="Nombre del Profesional de la Salud con el que asiste"
+                value={formData.profesional_nombre}
+                onChange={(e) => setFormData({ ...formData, profesional_nombre: e.target.value })}
+                error={errors.profesional_nombre}
+                required
+              />
+
+              <div>
+                <Select
+                  label="¿Qué tipo de profesional de la salud es?"
+                  options={PROFESIONAL_TIPO_OPTIONS.map((o) => ({ value: o, label: o }))}
+                  value={formData.profesional_tipo}
+                  onChange={(e) => setFormData({ ...formData, profesional_tipo: e.target.value })}
+                  error={errors.profesional_tipo}
+                  required
+                />
+                {formData.profesional_tipo === 'Otros' && (
+                  <div className="mt-4">
+                    <Input
+                      label="Especifica"
+                      value={formData.profesional_tipo_otro}
+                      onChange={(e) => setFormData({ ...formData, profesional_tipo_otro: e.target.value })}
+                      error={errors.profesional_tipo_otro}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <Input
+                label="Teléfono de contacto del profesional de la salud"
+                type="tel"
+                placeholder="Especificar si es del consultorio o personal"
+                value={formData.profesional_telefono}
+                onChange={(e) => setFormData({ ...formData, profesional_telefono: e.target.value })}
+                error={errors.profesional_telefono}
+                required
+              />
+
+              <Input
+                label="Correo electrónico del profesional de la salud"
+                type="email"
+                value={formData.profesional_email}
+                onChange={(e) => setFormData({ ...formData, profesional_email: e.target.value })}
+              />
+
+              <Select
+                label="¿Autoriza que se establezca contacto con el profesional de la salud para el seguimiento del proceso psicoterapéutico?"
+                options={[
+                  { value: 'Sí', label: 'Sí' },
+                  { value: 'No', label: 'No' },
+                ]}
+                value={formData.profesional_autoriza}
+                onChange={(e) => setFormData({ ...formData, profesional_autoriza: e.target.value })}
+                error={errors.profesional_autoriza}
+                required
+              />
+            </div>
+          )}
+
+          {/* Cómo se enteró */}
+          <div className="border-t border-line pt-6">
+            <Select
+              label="¿Cómo se enteró de nuestro Centro?"
+              options={ENTERO_OPTIONS.map((o) => ({ value: o, label: o }))}
+              value={formData.entero}
+              onChange={(e) => setFormData({ ...formData, entero: e.target.value })}
+              error={errors.entero}
+              required
+            />
+            {(formData.entero === 'Recomendación de un familiar/amigo' || formData.entero === 'Otro') && (
+              <div className="mt-4">
+                <Input
+                  label="Especifica"
+                  value={formData.enteroDetalle}
+                  onChange={(e) => setFormData({ ...formData, enteroDetalle: e.target.value })}
+                  error={errors.enteroDetalle}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Contrato Terapéutico */}
+          <div className="border-t border-line pt-6">
+            <h3 className="text-sm font-medium text-ink mb-1">Contrato Terapéutico y Políticas para Pacientes</h3>
+            <p className="text-xs text-ink-soft mb-4">
+              Cubre sesiones, confirmación/cancelación de citas, y consentimiento para actividades educativas y de
+              investigación (grabación con supervisión, uso de datos clínicos para investigación, rotación de
+              terapeutas). Entrega una copia impresa al paciente para que la lea antes de firmar.
+            </p>
+
+            <label className="flex items-center justify-center gap-2 px-4 py-3 border border-dashed border-line rounded-lg text-sm text-ink-soft cursor-pointer transition-colors duration-150 hover:bg-sage-pale/30 hover:border-sage">
+              {contratoFile ? <>📄 {contratoFile.name} — cambiar archivo</> : '📎 Subir contrato firmado (opcional)'}
+              <input
+                type="file"
+                accept="application/pdf,image/*"
+                className="hidden"
+                onChange={(e) => setContratoFile(e.target.files?.[0] || null)}
+              />
+            </label>
+
+            <div className="mt-2">
+              <Checkbox
+                label="He leído el Contrato Terapéutico y Políticas para Pacientes de bebest y estoy de acuerdo con lo mencionado"
+                checked={formData.contratoAceptado}
+                onChange={(e) => setFormData({ ...formData, contratoAceptado: e.target.checked })}
+                error={errors.contratoAceptado}
+                required
+              />
+            </div>
+          </div>
 
           <div className="flex items-center gap-4 p-6 -m-8 border-t border-line bg-gray-50">
             <Button type="submit" variant="primary" isLoading={isSubmitting} disabled={isSubmitting}>

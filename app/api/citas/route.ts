@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUserFromRequest, isAdmin } from '@/lib/session';
-import { createRecord, createRecords, findRecords } from '@/lib/airtable';
+import { createRecord, createRecords, findRecords, escapeAirtableFormula } from '@/lib/airtable';
 import { Cita } from '@/lib/types';
 
 export async function GET(request: NextRequest) {
@@ -14,7 +14,20 @@ export async function GET(request: NextRequest) {
     if (await isAdmin(request)) {
       citas = await findRecords<Cita>('citas');
     } else {
-      const filterFormula = `{terapeuta} = '${user.nombre}'`;
+      // citas only stores the primary terapeuta, not coterapeuta — so a
+      // coterapeuta's shared patients are found via the patient record, then
+      // matched into the citas filter by name (citas has no linked-record
+      // lookup for this).
+      const nombre = escapeAirtableFormula(user.nombre);
+      const coterapiaPatients = await findRecords<any>(
+        'pacientes_2025_2026',
+        `{coterapeuta} = '${nombre}'`
+      );
+      const clauses = [`{terapeuta} = '${nombre}'`];
+      for (const p of coterapiaPatients) {
+        if (p.paciente) clauses.push(`{paciente_nombre} = '${escapeAirtableFormula(p.paciente)}'`);
+      }
+      const filterFormula = clauses.length > 1 ? `OR(${clauses.join(', ')})` : clauses[0];
       citas = await findRecords<Cita>('citas', filterFormula);
     }
 

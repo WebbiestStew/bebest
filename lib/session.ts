@@ -15,11 +15,16 @@ export interface SessionPayload {
 // Signs the session into a JWT so it can't be edited client-side — a plain
 // JSON cookie can be rewritten by anyone (e.g. setting rol: "admin") since
 // httpOnly only blocks page scripts, not the account holder's own browser.
+// 24h rather than a longer window on purpose — this app handles patient
+// health records, so a stolen/left-open session should go stale in hours,
+// not the better part of a week.
+export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24; // 24 hours
+
 export async function createSessionToken(payload: SessionPayload): Promise<string> {
   return new SignJWT({ ...payload })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime('7d')
+    .setExpirationTime('24h')
     .sign(secret);
 }
 

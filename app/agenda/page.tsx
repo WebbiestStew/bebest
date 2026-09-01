@@ -379,6 +379,14 @@ export default function AgendaPage() {
                             </div>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
+                            <a
+                              href={`/api/citas/${c.id}/ics`}
+                              className="text-xs text-ink-soft hover:text-sage-deep transition-colors duration-150"
+                              aria-label="Agregar al calendario del teléfono"
+                              title="Agregar al calendario del teléfono"
+                            >
+                              📅
+                            </a>
                             <select
                               value={c.estado}
                               onChange={(e) => handleStatusSelect(c, e.target.value)}

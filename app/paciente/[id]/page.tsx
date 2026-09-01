@@ -8,6 +8,7 @@ import { BackButton } from '@/components/Button';
 import { useAuth } from '@/lib/useAuth';
 import { Patient } from '@/lib/types';
 import { Skeleton } from '@/components/Skeleton';
+import { fileToBase64 } from '@/lib/utils';
 
 const estadoLabel: Record<string, string> = {
   ACTIVO: 'Activo',
@@ -49,18 +50,6 @@ function fileIcon(type: string) {
   if (type.startsWith('image/')) return '🖼️';
   if (type === 'application/pdf') return '📄';
   return '📎';
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      resolve(result.split(',')[1] || '');
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
 
 export default function PacienteDetailPage() {
@@ -391,7 +380,7 @@ export default function PacienteDetailPage() {
                   className="flex items-center justify-between gap-3 p-3 rounded-lg border border-line transition-colors duration-150 hover:bg-sage-pale/20"
                 >
                   <a
-                    href={doc.url}
+                    href={`/api/patients/${patientId}/documentos/${doc.id}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-3 min-w-0 flex-1"

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUserFromRequest, isAdmin } from '@/lib/session';
-import { createRecord, findRecords, updateRecord, getRecord } from '@/lib/airtable';
+import { createRecord, findRecords, updateRecord, getRecord, escapeAirtableFormula } from '@/lib/airtable';
 import { Patient } from '@/lib/types';
 
 
@@ -17,8 +17,10 @@ export async function GET(request: NextRequest) {
       // Admin sees all patients
       patients = await findRecords<Patient>('pacientes_2025_2026');
     } else {
-      // Regular user sees only their patients
-      const filterFormula = `{terapeuta} = '${user.nombre}'`;
+      // Regular user sees their own patients plus any where they're the
+      // coterapeuta — co-therapy means shared access, not primary-only.
+      const nombre = escapeAirtableFormula(user.nombre);
+      const filterFormula = `OR({terapeuta} = '${nombre}', {coterapeuta} = '${nombre}')`;
       patients = await findRecords<Patient>('pacientes_2025_2026', filterFormula);
     }
 
@@ -65,6 +67,42 @@ export async function POST(request: NextRequest) {
       num_inasistencias: 0,
       expediente_completo: body.expediente_completo !== false,
       etapa_actual: body.etapa_actual || 'Primer contacto',
+      // Optional Ficha de Registro fields (Datos del cliente)
+      ...(body.edad !== undefined ? { edad: body.edad } : {}),
+      ...(body.fecha_nacimiento ? { fecha_nacimiento: body.fecha_nacimiento } : {}),
+      ...(body.sexo ? { sexo: body.sexo } : {}),
+      ...(body.estado_civil ? { estado_civil: body.estado_civil } : {}),
+      ...(body.ocupacion ? { ocupacion: body.ocupacion } : {}),
+      ...(body.email ? { email: body.email } : {}),
+      ...(body.como_se_entero ? { como_se_entero: body.como_se_entero } : {}),
+      // Domicilio
+      ...(body.calle ? { calle: body.calle } : {}),
+      ...(body.numero_ext_int ? { numero_ext_int: body.numero_ext_int } : {}),
+      ...(body.colonia ? { colonia: body.colonia } : {}),
+      ...(body.municipio ? { municipio: body.municipio } : {}),
+      ...(body.estado_direccion ? { estado_direccion: body.estado_direccion } : {}),
+      ...(body.pais ? { pais: body.pais } : {}),
+      // Contacto de emergencia
+      ...(body.contacto_emergencia_nombre ? { contacto_emergencia_nombre: body.contacto_emergencia_nombre } : {}),
+      ...(body.contacto_emergencia_relacion
+        ? { contacto_emergencia_relacion: body.contacto_emergencia_relacion }
+        : {}),
+      ...(body.contacto_emergencia_telefono
+        ? { contacto_emergencia_telefono: body.contacto_emergencia_telefono }
+        : {}),
+      ...(body.contacto_emergencia_email ? { contacto_emergencia_email: body.contacto_emergencia_email } : {}),
+      // Motivo de la solicitud + profesional que canaliza
+      ...(body.motivo_solicitud ? { motivo_solicitud: body.motivo_solicitud } : {}),
+      ...(body.profesional_nombre ? { profesional_nombre: body.profesional_nombre } : {}),
+      ...(body.profesional_tipo ? { profesional_tipo: body.profesional_tipo } : {}),
+      ...(body.profesional_telefono ? { profesional_telefono: body.profesional_telefono } : {}),
+      ...(body.profesional_email ? { profesional_email: body.profesional_email } : {}),
+      ...(body.profesional_autoriza_contacto !== undefined
+        ? { profesional_autoriza_contacto: body.profesional_autoriza_contacto }
+        : {}),
+      ...(body.contrato_terapeutico_aceptado !== undefined
+        ? { contrato_terapeutico_aceptado: body.contrato_terapeutico_aceptado }
+        : {}),
     });
 
     return NextResponse.json({ patient: newPatient }, { status: 201 });
@@ -101,7 +139,9 @@ export async function PUT(request: NextRequest) {
     }
 
     const patientAny = patient as any;
-    if (!(await isAdmin(request)) && patientAny.terapeuta && patientAny.terapeuta !== user.nombre) {
+    const isAssigned =
+      patientAny.terapeuta === user.nombre || patientAny.coterapeuta === user.nombre;
+    if (!(await isAdmin(request)) && patientAny.terapeuta && !isAssigned) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

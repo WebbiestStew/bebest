@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import clsx from 'clsx';
 import { useAuth } from '@/lib/useAuth';
 import { hasAdminAccess } from '@/lib/roles';
 import { Navigation } from '@/components/Navigation';
 import { Toast } from '@/components/Toast';
 import { Skeleton } from '@/components/Skeleton';
 import { CountUp } from '@/components/CountUp';
+import { Button } from '@/components/Button';
 
 function greeting() {
   const h = new Date().getHours();
@@ -22,10 +24,177 @@ const TODAY = new Date().toLocaleDateString('es-MX', {
   month: 'long',
 });
 
+// Dashboard personalization — every possible shortcut, plus which ones are
+// currently shown, in what order, and at what size. Saved to localStorage
+// (per-device, not clinical data) rather than Airtable: it's the same kind
+// of preference as "which tab was open last," and the hardcoded admin login
+// has no Airtable user record to attach a preference to anyway.
+const LAYOUT_STORAGE_KEY = 'consulta_dashboard_layout_v1';
+
+type TileSize = 'compact' | 'normal' | 'tall' | 'wide';
+
+interface TileConfig {
+  id: string;
+  size: TileSize;
+}
+
+interface CatalogEntry {
+  id: string;
+  icon: string;
+  title: string | ((isAdmin: boolean) => string);
+  subtitle: string | ((isAdmin: boolean) => string);
+  href: string;
+  adminOnly?: boolean;
+}
+
+const CATALOG: CatalogEntry[] = [
+  {
+    id: 'registro',
+    icon: '📝',
+    title: 'Registrar paciente nuevo',
+    subtitle: 'Agenda y ficha de registro del primer contacto.',
+    href: '/registro',
+  },
+  {
+    id: 'sesion1',
+    icon: '💬',
+    title: 'Sesión 1 · Entrevista',
+    subtitle: 'Historia clínica del paciente.',
+    href: '/sesion/1',
+  },
+  {
+    id: 'sesion2',
+    icon: '📋',
+    title: 'Sesión 2 · Pruebas',
+    subtitle: 'Batería de pruebas aplicadas.',
+    href: '/sesion/2',
+  },
+  {
+    id: 'sesion3',
+    icon: '🎯',
+    title: 'Sesión 3 · Resultados',
+    subtitle: 'Diagnóstico y entrega de resultados.',
+    href: '/sesion/3',
+  },
+  {
+    id: 'paciente',
+    icon: '👤',
+    title: 'Ver ficha de un paciente',
+    subtitle: 'Historial completo, diagnóstico y documentos.',
+    href: '/paciente',
+  },
+  {
+    id: 'pacientes',
+    icon: '📊',
+    title: (isAdmin) => (isAdmin ? 'Ver todos los pacientes' : 'Ver mis pacientes'),
+    subtitle: (isAdmin) => (isAdmin ? 'Lista con el estado de cada paciente.' : 'Tus pacientes asignados.'),
+    href: '/pacientes',
+  },
+  {
+    id: 'reportes',
+    icon: '📈',
+    title: 'Ver reportes',
+    subtitle: (isAdmin) => (isAdmin ? 'Estadísticas de toda la consulta.' : 'Estadísticas de tus pacientes.'),
+    href: '/reportes',
+  },
+  {
+    id: 'agenda',
+    icon: '🗓️',
+    title: 'Ver agenda',
+    subtitle: 'Citas de la semana, día por día.',
+    href: '/agenda',
+  },
+  {
+    id: 'sugerencias',
+    icon: '💡',
+    title: 'Sugerencias',
+    subtitle: 'Comparte una idea o reporta un problema.',
+    href: '/sugerencias',
+  },
+  {
+    id: 'alertas',
+    icon: '🔔',
+    title: 'Alertas',
+    subtitle: 'Expedientes incompletos.',
+    href: '/alertas',
+    adminOnly: true,
+  },
+  {
+    id: 'usuarios',
+    icon: '👥',
+    title: 'Usuarios',
+    subtitle: 'Cuentas con acceso al sistema.',
+    href: '/admin/usuarios',
+    adminOnly: true,
+  },
+];
+
+const DEFAULT_LAYOUT: TileConfig[] = [
+  { id: 'registro', size: 'normal' },
+  { id: 'sesion1', size: 'normal' },
+  { id: 'paciente', size: 'normal' },
+  { id: 'pacientes', size: 'normal' },
+  { id: 'reportes', size: 'normal' },
+  { id: 'agenda', size: 'normal' },
+];
+
+const SIZE_LABELS: Record<TileSize, string> = {
+  compact: 'Pequeño',
+  normal: 'Normal',
+  tall: 'Grande',
+  wide: 'Ancho',
+};
+const NEXT_SIZE: Record<TileSize, TileSize> = {
+  compact: 'normal',
+  normal: 'tall',
+  tall: 'wide',
+  wide: 'compact',
+};
+const SIZE_CLASSES: Record<TileSize, string> = {
+  compact: 'p-4',
+  normal: 'p-6',
+  tall: 'p-6 sm:py-10',
+  wide: 'p-6 sm:col-span-2',
+};
+
+function resolveText(value: string | ((isAdmin: boolean) => string), isAdmin: boolean) {
+  return typeof value === 'function' ? value(isAdmin) : value;
+}
+
 export default function Inicio() {
   const { user, isLoading } = useAuth();
   const [patients, setPatients] = useState<any[]>([]);
   const [isLoadingStats, setIsLoadingStats] = useState(true);
+  const [layout, setLayout] = useState<TileConfig[]>(DEFAULT_LAYOUT);
+  const [isEditing, setIsEditing] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(LAYOUT_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.every((t) => t && typeof t.id === 'string')) {
+          setLayout(parsed);
+        }
+      }
+    } catch {
+      // Corrupt/unavailable storage — just keep the default layout.
+    }
+  }, []);
+
+  // Persist explicitly from each mutation below (not via a `[layout]` effect):
+  // an effect watching `layout` would also fire once on mount with the
+  // pre-load default value, racing the load-effect above and overwriting
+  // any real saved layout with the default before the load ever lands.
+  const persistLayout = (next: TileConfig[]) => {
+    setLayout(next);
+    try {
+      localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // Private browsing / storage full — customization just won't persist.
+    }
+  };
 
   useEffect(() => {
     const fetchPatients = async () => {
@@ -74,44 +243,43 @@ export default function Inicio() {
   const isAdmin = hasAdminAccess(user.rol);
   const rawFirstName = (user.nombre || '').split(' ')[0];
   const firstName = rawFirstName ? rawFirstName.charAt(0).toUpperCase() + rawFirstName.slice(1) : '';
-  const tiles = [
-    {
-      icon: '1',
-      title: 'Registrar paciente nuevo',
-      subtitle: 'Agenda y ficha de registro del primer contacto.',
-      href: '/registro',
-    },
-    {
-      icon: '2',
-      title: 'Capturar una sesión',
-      subtitle: 'Entrevista, pruebas o entrega de resultados.',
-      href: '/sesion/1',
-    },
-    {
-      icon: '3',
-      title: 'Ver ficha de un paciente',
-      subtitle: 'Historial completo, diagnóstico y documentos.',
-      href: '/paciente',
-    },
-    {
-      icon: '4',
-      title: isAdmin ? 'Ver todos los pacientes' : 'Ver mis pacientes',
-      subtitle: isAdmin ? 'Lista con el estado de cada paciente.' : 'Tus pacientes asignados.',
-      href: '/pacientes',
-    },
-    {
-      icon: '5',
-      title: 'Ver reportes',
-      subtitle: isAdmin ? 'Estadísticas de toda la consulta.' : 'Estadísticas de tus pacientes.',
-      href: '/reportes',
-    },
-    {
-      icon: '6',
-      title: 'Ver agenda',
-      subtitle: 'Citas de la semana, día por día.',
-      href: '/agenda',
-    },
-  ];
+
+  const resolvedTiles = layout
+    .map((cfg) => {
+      const entry = CATALOG.find((c) => c.id === cfg.id);
+      if (!entry) return null; // stale id from an older catalog version
+      if (entry.adminOnly && !isAdmin) return null;
+      return {
+        ...cfg,
+        icon: entry.icon,
+        title: resolveText(entry.title, isAdmin),
+        subtitle: resolveText(entry.subtitle, isAdmin),
+        href: entry.href,
+      };
+    })
+    .filter((t): t is TileConfig & { icon: string; title: string; subtitle: string; href: string } => t !== null);
+
+  const availableToAdd = CATALOG.filter((c) => (!c.adminOnly || isAdmin) && !layout.some((l) => l.id === c.id));
+
+  const updateTileSize = (id: string) => {
+    persistLayout(layout.map((t) => (t.id === id ? { ...t, size: NEXT_SIZE[t.size] } : t)));
+  };
+  const removeTile = (id: string) => {
+    persistLayout(layout.filter((t) => t.id !== id));
+  };
+  const addTile = (id: string) => {
+    persistLayout([...layout, { id, size: 'normal' }]);
+    setShowPicker(false);
+  };
+  const moveTile = (id: string, dir: -1 | 1) => {
+    const idx = layout.findIndex((t) => t.id === id);
+    const newIdx = idx + dir;
+    if (newIdx < 0 || newIdx >= layout.length) return;
+    const copy = [...layout];
+    [copy[idx], copy[newIdx]] = [copy[newIdx], copy[idx]];
+    persistLayout(copy);
+  };
+  const resetLayout = () => persistLayout(DEFAULT_LAYOUT);
 
   const statCards = [
     { label: isAdmin ? 'Pacientes totales' : 'Tus pacientes', value: stats.total, accent: 'text-ink' },
@@ -134,7 +302,8 @@ export default function Inicio() {
           <div className="mb-8 animate-fade-in-up">
             <div className="text-sm font-mono text-sage-deep uppercase tracking-widest mb-2 capitalize">{TODAY}</div>
             <h1 className="font-serif text-4xl font-medium mb-2">
-              {greeting()}{firstName ? `, ${firstName}` : ''}
+              {greeting()}
+              {firstName ? `, ${firstName}` : ''}
             </h1>
             <p className="text-ink-soft text-base max-w-lg">Elige una opción. Cada pantalla te pide solo lo necesario para ese paso.</p>
           </div>
@@ -159,23 +328,135 @@ export default function Inicio() {
             ))}
           </div>
 
+          <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+            <p className="text-sm text-ink-soft">
+              {isEditing ? 'Cambia el tamaño, el orden, o agrega y quita accesos directos.' : ' '}
+            </p>
+            <div className="flex items-center gap-3">
+              {isEditing && (
+                <button
+                  onClick={resetLayout}
+                  className="text-xs text-ink-soft hover:text-red underline decoration-dotted underline-offset-2 transition-colors duration-150"
+                >
+                  Restablecer diseño
+                </button>
+              )}
+              <Button
+                variant={isEditing ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => {
+                  setIsEditing((v) => !v);
+                  setShowPicker(false);
+                }}
+              >
+                {isEditing ? '✓ Listo' : '🎛️ Personalizar'}
+              </Button>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {tiles.map((t, i) => (
-              <Link key={t.href} href={t.href}>
+            {resolvedTiles.map((t, i) => {
+              const cardBody = (
                 <div
-                  className="group bg-panel border border-line rounded-xl p-6 h-full cursor-pointer hover:border-sage hover:-translate-y-1 hover:shadow-lg transition-all duration-250 ease-out animate-fade-in-up"
+                  className={clsx(
+                    'group relative bg-panel border border-line rounded-xl h-full transition-all duration-250 ease-out animate-fade-in-up',
+                    SIZE_CLASSES[t.size],
+                    !isEditing && 'cursor-pointer hover:border-sage hover:-translate-y-1 hover:shadow-lg'
+                  )}
                   style={{ animationDelay: `${200 + i * 60}ms` }}
                 >
-                  <div className="w-8 h-8 rounded-lg bg-sage-pale text-sage-deep flex items-center justify-center mb-3 font-mono font-medium transition-transform duration-250 group-hover:scale-110 group-hover:bg-sage-deep group-hover:text-white">
+                  {isEditing && (
+                    <div className="absolute -top-3 -right-3 flex items-center gap-1 z-10">
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          moveTile(t.id, -1);
+                        }}
+                        aria-label="Mover antes"
+                        className="w-7 h-7 rounded-full bg-white border border-line shadow-sm flex items-center justify-center text-xs text-ink-soft hover:bg-sage-pale hover:text-sage-deep active:scale-90 transition-all duration-150"
+                      >
+                        ‹
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          moveTile(t.id, 1);
+                        }}
+                        aria-label="Mover después"
+                        className="w-7 h-7 rounded-full bg-white border border-line shadow-sm flex items-center justify-center text-xs text-ink-soft hover:bg-sage-pale hover:text-sage-deep active:scale-90 transition-all duration-150"
+                      >
+                        ›
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          updateTileSize(t.id);
+                        }}
+                        aria-label="Cambiar tamaño"
+                        className="h-7 px-2.5 rounded-full bg-white border border-line shadow-sm flex items-center justify-center text-[10px] font-mono text-ink-soft hover:bg-sage-pale hover:text-sage-deep active:scale-90 transition-all duration-150 whitespace-nowrap"
+                      >
+                        {SIZE_LABELS[t.size]}
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          removeTile(t.id);
+                        }}
+                        aria-label="Quitar"
+                        className="w-7 h-7 rounded-full bg-white border border-line shadow-sm flex items-center justify-center text-xs text-red hover:bg-red-pale active:scale-90 transition-all duration-150"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+                  <div className="w-8 h-8 rounded-lg bg-sage-pale text-sage-deep flex items-center justify-center mb-3 text-base transition-transform duration-250 group-hover:scale-110 group-hover:bg-sage-deep group-hover:text-white">
                     {t.icon}
                   </div>
-                  <h3 className="font-serif text-lg font-medium mb-1 transition-colors group-hover:text-sage-deep">
-                    {t.title}
-                  </h3>
-                  <p className="text-sm text-ink-soft leading-relaxed">{t.subtitle}</p>
+                  <h3 className="font-serif text-lg font-medium mb-1 transition-colors group-hover:text-sage-deep">{t.title}</h3>
+                  {t.size !== 'compact' && <p className="text-sm text-ink-soft leading-relaxed">{t.subtitle}</p>}
                 </div>
-              </Link>
-            ))}
+              );
+
+              return isEditing ? (
+                <div key={t.id} className={clsx(t.size === 'wide' && 'sm:col-span-2')}>
+                  {cardBody}
+                </div>
+              ) : (
+                <Link key={t.id} href={t.href} className={clsx(t.size === 'wide' && 'sm:col-span-2')}>
+                  {cardBody}
+                </Link>
+              );
+            })}
+
+            {isEditing && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowPicker((v) => !v)}
+                  className="w-full h-full min-h-[140px] border-2 border-dashed border-line rounded-xl flex flex-col items-center justify-center gap-2 text-ink-soft hover:border-sage hover:text-sage-deep hover:bg-sage-pale/20 active:scale-[0.98] transition-all duration-200"
+                >
+                  <span className="text-2xl leading-none">+</span>
+                  <span className="text-sm font-medium">Agregar acceso directo</span>
+                </button>
+                {showPicker && (
+                  <div className="absolute top-full left-0 mt-2 w-72 bg-panel border border-line rounded-xl shadow-lg p-2 z-20 max-h-72 overflow-auto animate-fade-in-up">
+                    {availableToAdd.length === 0 ? (
+                      <div className="text-xs text-ink-soft p-3">Ya agregaste todos los accesos disponibles.</div>
+                    ) : (
+                      availableToAdd.map((c) => (
+                        <button
+                          key={c.id}
+                          onClick={() => addTile(c.id)}
+                          className="w-full flex items-center gap-2.5 p-2.5 rounded-lg hover:bg-sage-pale/40 text-left transition-colors duration-150"
+                        >
+                          <span className="text-lg shrink-0">{c.icon}</span>
+                          <span className="text-sm text-ink">{resolveText(c.title, isAdmin)}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </main>

@@ -13,7 +13,9 @@ async function checkAccess(request: NextRequest, patientId: string) {
   if (!patient) return { error: 'Paciente no encontrado', status: 404 } as const;
 
   const patientAny = patient as any;
-  if (!(await isAdmin(request)) && patientAny.terapeuta && patientAny.terapeuta !== user.nombre) {
+  const isAssigned =
+    patientAny.terapeuta === user.nombre || patientAny.coterapeuta === user.nombre;
+  if (!(await isAdmin(request)) && patientAny.terapeuta && !isAssigned) {
     return { error: 'Forbidden', status: 403 } as const;
   }
 

@@ -34,21 +34,64 @@ export interface Patient {
   tipo_ingreso?: string;
   coincide_con_seguimiento?: string;
   filas_originales_mismo_nombre?: number;
-  // Intake fields (captured via the app's "Nuevo paciente" form)
+  // Intake fields (captured via the app's "Ficha de Registro" form, matching
+  // the clinic's "Registro inicial de pacientes adultos" Google Form).
+  // motivo_consulta stores a JSON array of selected concerns (see
+  // parseMotivoConsulta/serializeMotivoConsulta in lib/utils.ts) — same
+  // JSON-in-text-field pattern as plan_tratamiento, since Airtable has no
+  // array field type and the real form is a "select all that apply" list.
   telefono?: string;
   motivo_consulta?: string;
+  fecha_nacimiento?: string;
+  estado_civil?: string;
+  ocupacion?: string;
+  email?: string;
+  como_se_entero?: string;
+  // Domicilio
+  calle?: string;
+  numero_ext_int?: string;
+  colonia?: string;
+  municipio?: string;
+  estado_direccion?: string;
+  pais?: string;
+  // Contacto de emergencia
+  contacto_emergencia_nombre?: string;
+  contacto_emergencia_relacion?: string;
+  contacto_emergencia_telefono?: string;
+  contacto_emergencia_email?: string;
+  // Motivo de la solicitud + profesional que canalizó (Q23-27 only apply
+  // when motivo_solicitud is "Solicitud por parte del Psiquiatra" or "Otros")
+  motivo_solicitud?: string;
+  profesional_nombre?: string;
+  profesional_tipo?: string;
+  profesional_telefono?: string;
+  profesional_email?: string;
+  profesional_autoriza_contacto?: boolean;
+  // Contrato Terapéutico y Políticas para Pacientes (bebest) — the signed
+  // physical copy, if uploaded, lives in `documentos` like the INE does.
+  contrato_terapeutico_aceptado?: boolean;
   // Clinical fields (captured progressively via the Sesión 1/2/3 workflow)
   historia_clinica?: string;
   bateria_pruebas?: string;
   observaciones_pruebas?: string;
-  reusar_pruebas?: boolean;
   dx_principal?: string;
+  dx_principal_codigo?: string;
   dx_comorbilidad?: string;
+  dx_comorbilidad_codigo?: string;
   dx_otros_problemas?: string;
+  // JSON-serialized PlanObjetivo[] (see lib/utils.ts) — the real form is a
+  // table of numbered objetivos each paired with técnicas, not a paragraph.
+  // Stored as a string because Airtable has no array-of-objects field type.
   plan_tratamiento?: string;
   plan_no_suicidio?: boolean;
   consentimiento_informado?: boolean;
   referido_psiquiatria?: boolean;
+  // Signed informe de resultados (Sesión 3) — the clinic works off the
+  // physical signed document (uploaded via `documentos`); these just track
+  // who has signed it, one checkbox per signer.
+  informe_firmado_terapeuta?: boolean;
+  informe_firmado_supervisor?: boolean;
+  informe_firmado_paciente?: boolean;
   num_sesiones?: number;
   num_inasistencias?: number;
   expediente_completo?: boolean;

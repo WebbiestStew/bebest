@@ -7,6 +7,16 @@ const headers = {
   'Content-Type': 'application/json',
 };
 
+// Escapes a value for safe interpolation into an Airtable filterByFormula
+// string literal ('...'). Values like a therapist's display name currently
+// come from an admin-only creation flow, not directly from request input,
+// so this is defense-in-depth rather than a live exploit — but an
+// unescaped quote (e.g. a name like "O'Brien") would otherwise break the
+// formula or, if that ever changes, open a real injection path.
+export function escapeAirtableFormula(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
 // Helper to find records
 export async function findRecords<T>(
   table: string,

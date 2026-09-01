@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Navigation } from '@/components/Navigation';
 import { Toast } from '@/components/Toast';
 import { Button, BackButton } from '@/components/Button';
-import { Input, Select, Textarea, Checkbox } from '@/components/FormInputs';
+import { Input, Select, Textarea } from '@/components/FormInputs';
 import { useAuth } from '@/lib/useAuth';
 import { Patient } from '@/lib/types';
 
@@ -25,7 +25,6 @@ export default function Sesion2Page() {
     paciente: '',
     bateria_pruebas: '',
     observaciones: '',
-    reusar_pruebas: false,
   });
   const [patientFull, setPatientFull] = useState<Patient | null>(null);
 
@@ -74,7 +73,6 @@ export default function Sesion2Page() {
         body: JSON.stringify({
           bateria_pruebas: formData.bateria_pruebas.trim(),
           observaciones_pruebas: formData.observaciones.trim(),
-          reusar_pruebas: formData.reusar_pruebas,
           num_sesiones: ((patientFull as any)?.num_sesiones || 0) + 1,
           expediente_completo: true,
         }),
@@ -116,7 +114,6 @@ export default function Sesion2Page() {
         body: JSON.stringify({
           bateria_pruebas: formData.bateria_pruebas.trim(),
           observaciones_pruebas: formData.observaciones.trim(),
-          reusar_pruebas: formData.reusar_pruebas,
           num_sesiones: ((patientFull as any)?.num_sesiones || 0) + 1,
           expediente_completo: false,
         }),
@@ -206,13 +203,6 @@ export default function Sesion2Page() {
             onChange={(e) => setFormData({ ...formData, bateria_pruebas: e.target.value })}
             error={errors.bateria}
             required
-          />
-
-          <Checkbox
-            label="Reusar las pruebas de una sesión anterior"
-            sublabel="Opcional — marca esto si no es necesario volver a aplicar todo el set."
-            checked={formData.reusar_pruebas}
-            onChange={(e) => setFormData({ ...formData, reusar_pruebas: e.target.checked })}
           />
 
           <Textarea

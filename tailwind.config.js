@@ -62,6 +62,11 @@ module.exports = {
           '0%, 100%': { opacity: '1' },
           '50%': { opacity: '0.55' },
         },
+        checkPop: {
+          '0%': { transform: 'scale(0.75)' },
+          '55%': { transform: 'scale(1.15)' },
+          '100%': { transform: 'scale(1)' },
+        },
       },
       animation: {
         'fade-in': 'fadeIn 0.35s ease-out both',
@@ -70,6 +75,7 @@ module.exports = {
         'slide-up-fade': 'slideUpFade 0.3s cubic-bezier(0.16, 1, 0.3, 1) both',
         shimmer: 'shimmer 1.4s ease-in-out infinite',
         'pulse-soft': 'pulseSoft 1.8s ease-in-out infinite',
+        'check-pop': 'checkPop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) both',
       },
     },
   },

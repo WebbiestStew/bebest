@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { User } from '@/lib/types';
-import { findRecords, createRecord } from '@/lib/airtable';
+import { findRecords, createRecord, escapeAirtableFormula } from '@/lib/airtable';
 
 const HARDCODED_ADMIN = {
   id: 'admin_001',
@@ -31,7 +31,7 @@ export async function findUserByEmail(email: string): Promise<(User & { id: stri
     } as User & { id: string };
   }
 
-  const matches = await findRecords<any>('users', `{Email} = '${email}'`);
+  const matches = await findRecords<any>('users', `{Email} = '${escapeAirtableFormula(email)}'`);
   const user = matches[0];
   if (!user) return null;
   return {
@@ -76,7 +76,7 @@ export async function verifyCredentials(email: string, password: string): Promis
     return null;
   }
 
-  const matches = await findRecords<User>('users', `{Email} = '${email}'`);
+  const matches = await findRecords<User>('users', `{Email} = '${escapeAirtableFormula(email)}'`);
   const user = matches[0] as (User & { id: string; Password_hash?: string }) | undefined;
   if (!user || !user.Password_hash) return null;
 

@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyCredentials } from '@/lib/auth';
-import { createSessionToken } from '@/lib/session';
+import { createSessionToken, SESSION_MAX_AGE_SECONDS } from '@/lib/session';
+import { createPendingTwoFactorToken, generateTwoFactorCode } from '@/lib/twoFactor';
+import { sendTwoFactorCode } from '@/lib/email';
+import { checkRateLimit, recordFailedLogin, clearRateLimit } from '@/lib/rateLimit';
+import { reportServerError } from '@/lib/errorMonitor';
+
+// 2FA is gated behind an env var rather than always-on: until bebest.com is
+// verified as a sending domain, Resend can only deliver to one sandboxed
+// test address (see lib/email.ts), which would lock every real user out of
+// login if this were required unconditionally right now.
+const REQUIRE_2FA = process.env.REQUIRE_2FA === 'true';
 
 export async function POST(req: NextRequest) {
   try {
@@ -13,12 +23,51 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const rateLimit = await checkRateLimit(email);
+    if (rateLimit.blocked) {
+      return NextResponse.json(
+        {
+          error: `Demasiados intentos fallidos. Intenta de nuevo en ${rateLimit.retryAfterMinutes} minuto${
+            rateLimit.retryAfterMinutes === 1 ? '' : 's'
+          }.`,
+        },
+        { status: 429 }
+      );
+    }
+
     const user = await verifyCredentials(email, password);
     if (!user) {
+      await recordFailedLogin(email);
       return NextResponse.json(
         { error: 'Correo o contraseña incorrectos' },
         { status: 401 }
       );
+    }
+
+    await clearRateLimit(email);
+
+    if (REQUIRE_2FA) {
+      const code = generateTwoFactorCode();
+      const pendingToken = await createPendingTwoFactorToken(
+        { id: user.id, email: user.email, nombre: user.nombre, rol: user.rol },
+        code
+      );
+      const sent = await sendTwoFactorCode(user.email, user.nombre, code);
+      if (!sent) {
+        return NextResponse.json(
+          { error: 'No se pudo enviar el código de verificación. Intenta de nuevo.' },
+          { status: 500 }
+        );
+      }
+
+      const response = NextResponse.json({ requires2FA: true, email: user.email }, { status: 200 });
+      response.cookies.set('consulta_2fa_pending', pendingToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 60 * 10, // 10 minutes
+      });
+      return response;
     }
 
     // Create a simple session cookie
@@ -41,12 +90,12 @@ export async function POST(req: NextRequest) {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 7, // 7 days
+      maxAge: SESSION_MAX_AGE_SECONDS,
     });
 
     return response;
   } catch (error) {
-    console.error('Login error:', error);
+    reportServerError('POST /api/auth/login', error);
     return NextResponse.json(
       { error: 'Error al procesar la solicitud' },
       { status: 500 }

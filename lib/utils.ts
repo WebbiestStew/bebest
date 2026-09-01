@@ -1,4 +1,106 @@
-import { Patient } from './types';
+import { Patient, Cita } from './types';
+import { DSM5_CODES } from './dsm5Codes';
+
+const SESSION_MINUTES = 50;
+
+// Formats a UTC Date as an iCalendar DATE-TIME (basic format, no separators).
+function toIcsUtc(date: Date): string {
+  return date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+}
+
+// Escapes text per RFC 5545 (comma, semicolon, backslash, and literal
+// newlines all need escaping inside a value).
+function icsEscape(text: string): string {
+  return text.replace(/\\/g, '\\\\').replace(/[,;]/g, '\\$&').replace(/\r?\n/g, '\\n');
+}
+
+// Builds a single-event .ics file for a cita, downloadable/openable to add it
+// to the phone's own calendar app (Google/Apple/Outlook all support this).
+// Monterrey (America/Monterrey) has used fixed UTC-6 standard time year-round
+// since Mexico dropped DST outside the border strip in 2022, so the offset
+// below is hardcoded rather than looked up from a timezone database.
+export function buildCitaIcs(cita: Cita & { id: string }): string {
+  const datePart = (cita.fecha || '').slice(0, 10);
+  const start = new Date(`${datePart}T${cita.hora || '00:00'}:00-06:00`);
+  const end = new Date(start.getTime() + SESSION_MINUTES * 60 * 1000);
+
+  const summary = icsEscape(`Cita — ${cita.paciente_nombre}`);
+  const descriptionParts = [`Terapeuta: ${cita.terapeuta}`];
+  if (cita.notas) descriptionParts.push(`Notas: ${cita.notas}`);
+  const description = icsEscape(descriptionParts.join('\n'));
+
+  return [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Consulta//Agenda//ES',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'BEGIN:VEVENT',
+    `UID:cita-${cita.id}@consulta.bebest.com`,
+    `DTSTAMP:${toIcsUtc(new Date())}`,
+    `DTSTART:${toIcsUtc(start)}`,
+    `DTEND:${toIcsUtc(end)}`,
+    `SUMMARY:${summary}`,
+    `DESCRIPTION:${description}`,
+    `STATUS:${cita.estado === 'Cancelada' ? 'CANCELLED' : 'CONFIRMED'}`,
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ].join('\r\n');
+}
+
+// Looks up the ICD-10-CM code for a diagnosis name typed into Dx Principal /
+// Dx Comorbilidad — exact match only (case-insensitive) against the DSM-5-TR
+// classification list, since fuzzy-matching a clinical code is riskier than
+// just not showing one. Pick the suggestion from the field's datalist to
+// guarantee a match.
+export function findDsm5Code(name: string): string | undefined {
+  const target = name.trim().toLowerCase();
+  if (!target) return undefined;
+  return DSM5_CODES.find((e) => e.name.toLowerCase() === target)?.code;
+}
+
+// Plan de Tratamiento (Sesión 3) — the real document is a table of numbered
+// objetivos each paired with técnicas, stored as a JSON string since Airtable
+// has no array-of-objects field type.
+export interface PlanObjetivo {
+  objetivo: string;
+  tecnicas: string;
+}
+
+export function parsePlanTratamiento(raw?: string): PlanObjetivo[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    // Pre-restructure values were a single free-text paragraph — surface
+    // them as one row instead of silently losing the data.
+    return [{ objetivo: 'Plan de tratamiento (formato anterior)', tecnicas: raw }];
+  }
+}
+
+export function serializePlanTratamiento(rows: PlanObjetivo[]): string {
+  const nonEmpty = rows.filter((r) => r.objetivo.trim() || r.tecnicas.trim());
+  return nonEmpty.length ? JSON.stringify(nonEmpty) : '';
+}
+
+// Motivo de consulta (Ficha de Registro) — "select all that apply" list of
+// concerns, stored as a JSON array string for the same reason as above.
+export function parseMotivoConsulta(raw?: string): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    // Pre-restructure values were a single string (e.g. "Ansiedad") — surface
+    // it as a one-item list instead of losing it.
+    return [raw];
+  }
+}
+
+export function serializeMotivoConsulta(items: string[]): string {
+  return items.length ? JSON.stringify(items) : '';
+}
 
 // Toast notification helper
 export function showToast(message: string, isError: boolean = false) {
@@ -117,6 +219,20 @@ export function sanitize(input: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+// Reads a File into a base64 string (no data: URL prefix), for the
+// documentos upload endpoint, which expects raw base64.
+export function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.split(',')[1] || '');
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 // Get initials from name

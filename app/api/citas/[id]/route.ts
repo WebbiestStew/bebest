@@ -16,7 +16,13 @@ async function checkAccess(request: NextRequest, citaId: string) {
   if (!cita) return { error: 'Cita no encontrada', status: 404 } as const;
 
   if (!(await isAdmin(request)) && (cita as any).terapeuta !== user.nombre) {
-    return { error: 'Forbidden', status: 403 } as const;
+    // Not the primary terapeuta on this cita — still allow it if the user is
+    // the coterapeuta on the linked patient (citas only stores the primary).
+    const patientId = ((cita as any).paciente || [])[0];
+    const patient = patientId ? await getRecord<Patient>('pacientes_2025_2026', patientId) : null;
+    if (!patient || (patient as any).coterapeuta !== user.nombre) {
+      return { error: 'Forbidden', status: 403 } as const;
+    }
   }
 
   return { user, cita } as const;
