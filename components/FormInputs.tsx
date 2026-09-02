@@ -74,21 +74,35 @@ export function Select({
   const selectId = id || autoId;
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const [query, setQuery] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const selectedOption = options.find((o) => o.value === value);
+  // Long lists (e.g. 200+ patients) were unbrowsable without this — filter
+  // by the typed query, case-insensitive substring match against the label.
+  const filteredOptions = query.trim()
+    ? options.filter((o) => o.label.toLowerCase().includes(query.trim().toLowerCase()))
+    : options;
 
   useEffect(() => {
     if (!isOpen) return;
     const handleOutsideClick = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
+        closeDropdown(false);
       }
     };
     document.addEventListener('mousedown', handleOutsideClick);
     return () => document.removeEventListener('mousedown', handleOutsideClick);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  // Move focus into the search box the instant the panel opens, so typing
+  // works immediately without an extra click.
+  useEffect(() => {
+    if (isOpen) searchRef.current?.focus();
   }, [isOpen]);
 
   useEffect(() => {
@@ -97,13 +111,18 @@ export function Select({
     el?.scrollIntoView({ block: 'nearest' });
   }, [highlightedIndex, isOpen]);
 
-  const commitValue = (val: string) => {
+  const closeDropdown = (refocusTrigger = true) => {
     setIsOpen(false);
-    onChange?.({ target: { value: val, name } } as unknown as React.ChangeEvent<HTMLSelectElement>);
+    setQuery('');
+    if (refocusTrigger) buttonRef.current?.focus();
+  };
+
+  const commitValue = (val: string) => {
     // Clicking an <li> (not focusable) drops browser focus entirely, so a
     // keyboard user who reopens with Enter/Space right after a mouse pick
     // would otherwise find nothing focused. Keep focus on the trigger.
-    buttonRef.current?.focus();
+    closeDropdown(true);
+    onChange?.({ target: { value: val, name } } as unknown as React.ChangeEvent<HTMLSelectElement>);
   };
 
   const openDropdown = () => {
@@ -114,29 +133,40 @@ export function Select({
   };
 
   const handleTriggerKeyDown = (e: React.KeyboardEvent) => {
-    if (disabled) return;
-    if (!isOpen) {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        openDropdown();
-      }
-      return;
+    if (disabled || isOpen) return;
+    // Once open, focus moves to the search box below — its own handler takes
+    // over from there.
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openDropdown();
     }
+  };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setHighlightedIndex((i) => Math.min(i + 1, options.length - 1));
+      setHighlightedIndex((i) => Math.min(i + 1, filteredOptions.length - 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setHighlightedIndex((i) => Math.max(i - 1, 0));
-    } else if (e.key === 'Enter' || e.key === ' ') {
+    } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (highlightedIndex >= 0 && options[highlightedIndex]) commitValue(options[highlightedIndex].value);
+      if (highlightedIndex >= 0 && filteredOptions[highlightedIndex]) {
+        commitValue(filteredOptions[highlightedIndex].value);
+      }
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      setIsOpen(false);
+      closeDropdown(true);
     } else if (e.key === 'Tab') {
-      setIsOpen(false);
+      // Let Tab move focus on to wherever it naturally goes next — don't
+      // steal it back to the trigger the way Escape does.
+      closeDropdown(false);
     }
+  };
+
+  const handleQueryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setQuery(e.target.value);
+    setHighlightedIndex(0);
   };
 
   return (
@@ -159,7 +189,7 @@ export function Select({
             // — onKeyDown below already opens/commits for those keys, so
             // handling this click too would immediately re-toggle right after.
             if (e.detail === 0) return;
-            isOpen ? setIsOpen(false) : openDropdown();
+            isOpen ? closeDropdown(false) : openDropdown();
           }}
           onKeyDown={handleTriggerKeyDown}
           aria-haspopup="listbox"
@@ -192,52 +222,65 @@ export function Select({
         </button>
 
         {isOpen && (
-          <ul
-            ref={listRef}
-            role="listbox"
-            tabIndex={-1}
-            aria-labelledby={label ? selectId : undefined}
-            className="absolute z-30 mt-2 w-full max-h-64 overflow-auto rounded-xl border-2 border-line bg-panel shadow-lg py-1.5 animate-scale-in origin-top"
-          >
-            {options.length === 0 ? (
-              <li className="px-4 py-3 text-sm text-ink-soft">Sin opciones</li>
-            ) : (
-              options.map((opt, i) => {
-                const isSelected = opt.value === value;
-                const isHighlighted = i === highlightedIndex;
-                return (
-                  <li
-                    key={opt.value}
-                    role="option"
-                    aria-selected={isSelected}
-                    onMouseEnter={() => setHighlightedIndex(i)}
-                    onClick={() => commitValue(opt.value)}
-                    className={clsx(
-                      'flex items-center justify-between gap-2 mx-1.5 px-3 py-3 rounded-lg text-base cursor-pointer transition-colors duration-100',
-                      isSelected
-                        ? 'bg-sage-deep text-white font-medium'
-                        : isHighlighted
-                        ? 'bg-sage-pale text-ink'
-                        : 'text-ink'
-                    )}
-                  >
-                    <span className="truncate">{opt.label}</span>
-                    {isSelected && (
-                      <svg className="w-4 h-4 shrink-0" viewBox="0 0 16 16" fill="none">
-                        <path
-                          d="M3 8.5L6.2 11.5L13 4.5"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    )}
-                  </li>
-                );
-              })
-            )}
-          </ul>
+          <div className="absolute z-30 mt-2 w-full rounded-xl border-2 border-line bg-panel shadow-lg animate-scale-in origin-top overflow-hidden">
+            <div className="p-2 border-b border-line">
+              <input
+                ref={searchRef}
+                type="text"
+                value={query}
+                onChange={handleQueryChange}
+                onKeyDown={handleSearchKeyDown}
+                placeholder="Buscar…"
+                className="w-full px-3 py-2 text-sm font-sans rounded-lg border border-line bg-white text-ink focus:outline-none focus:ring-2 focus:ring-sage/30 focus:border-sage"
+              />
+            </div>
+            <ul
+              ref={listRef}
+              role="listbox"
+              tabIndex={-1}
+              aria-labelledby={label ? selectId : undefined}
+              className="max-h-56 overflow-auto py-1.5"
+            >
+              {filteredOptions.length === 0 ? (
+                <li className="px-4 py-3 text-sm text-ink-soft">Sin resultados</li>
+              ) : (
+                filteredOptions.map((opt, i) => {
+                  const isSelected = opt.value === value;
+                  const isHighlighted = i === highlightedIndex;
+                  return (
+                    <li
+                      key={opt.value}
+                      role="option"
+                      aria-selected={isSelected}
+                      onMouseEnter={() => setHighlightedIndex(i)}
+                      onClick={() => commitValue(opt.value)}
+                      className={clsx(
+                        'flex items-center justify-between gap-2 mx-1.5 px-3 py-3 rounded-lg text-base cursor-pointer transition-colors duration-100',
+                        isSelected
+                          ? 'bg-sage-deep text-white font-medium'
+                          : isHighlighted
+                          ? 'bg-sage-pale text-ink'
+                          : 'text-ink'
+                      )}
+                    >
+                      <span className="truncate">{opt.label}</span>
+                      {isSelected && (
+                        <svg className="w-4 h-4 shrink-0" viewBox="0 0 16 16" fill="none">
+                          <path
+                            d="M3 8.5L6.2 11.5L13 4.5"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      )}
+                    </li>
+                  );
+                })
+              )}
+            </ul>
+          </div>
         )}
       </div>
       {error && <div className="text-xs text-red mt-1">{error}</div>}

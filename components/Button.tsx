@@ -12,7 +12,7 @@ export function Button({
   className,
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: 'primary' | 'secondary';
+  variant?: 'primary' | 'secondary' | 'danger';
   size?: 'sm' | 'md' | 'lg';
   isLoading?: boolean;
 }) {
@@ -24,6 +24,8 @@ export function Button({
       'bg-sage-deep text-white shadow-[0_2px_0_0_rgba(0,0,0,0.12),0_4px_10px_-2px_rgba(76,107,81,0.35)] hover:bg-opacity-90 hover:shadow-[0_2px_0_0_rgba(0,0,0,0.12),0_8px_16px_-4px_rgba(76,107,81,0.45)] hover:-translate-y-0.5 active:shadow-[0_0px_0_0_rgba(0,0,0,0.12)] active:translate-y-0',
     secondary:
       'border-2 border-line text-ink-soft bg-panel hover:bg-sage-pale/40 hover:border-sage hover:text-sage-deep hover:-translate-y-0.5 hover:shadow-md active:translate-y-0',
+    danger:
+      'bg-red text-white shadow-[0_2px_0_0_rgba(0,0,0,0.12),0_4px_10px_-2px_rgba(178,91,76,0.35)] hover:bg-opacity-90 hover:shadow-[0_2px_0_0_rgba(0,0,0,0.12),0_8px_16px_-4px_rgba(178,91,76,0.45)] hover:-translate-y-0.5 active:shadow-[0_0px_0_0_rgba(0,0,0,0.12)] active:translate-y-0',
   };
 
   const sizeClasses = {

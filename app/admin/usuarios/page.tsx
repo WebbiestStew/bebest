@@ -6,6 +6,7 @@ import { Navigation } from '@/components/Navigation';
 import { Toast } from '@/components/Toast';
 import { Button, BackButton } from '@/components/Button';
 import { Input, Select } from '@/components/FormInputs';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useAuth } from '@/lib/useAuth';
 import { Skeleton } from '@/components/Skeleton';
 import { hasAdminAccess, roleLabel } from '@/lib/roles';
@@ -38,6 +39,8 @@ export default function AdminUsuariosPage() {
     password: '',
     rol: 'user',
   });
+  const [userToDelete, setUserToDelete] = useState<{ id: string; nombre: string } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const fetchUsers = async () => {
     try {
@@ -120,6 +123,39 @@ export default function AdminUsuariosPage() {
     }
   };
 
+  const handleConfirmDelete = async () => {
+    if (!userToDelete) return;
+    setIsDeleting(true);
+    try {
+      const response = await fetch(`/api/users?id=${userToDelete.id}`, { method: 'DELETE' });
+      const data = await response.json();
+
+      if (response.ok) {
+        window.dispatchEvent(
+          new CustomEvent('showToast', {
+            detail: { message: `Usuario "${userToDelete.nombre}" eliminado.`, isError: false },
+          })
+        );
+        setUsers((prev) => prev.filter((u) => u.id !== userToDelete.id));
+      } else {
+        window.dispatchEvent(
+          new CustomEvent('showToast', {
+            detail: { message: data.error || 'Error al eliminar usuario', isError: true },
+          })
+        );
+      }
+    } catch (error) {
+      window.dispatchEvent(
+        new CustomEvent('showToast', {
+          detail: { message: 'Error al eliminar usuario', isError: true },
+        })
+      );
+    } finally {
+      setIsDeleting(false);
+      setUserToDelete(null);
+    }
+  };
+
   return (
     <div className="flex flex-col md:flex-row h-screen bg-bg">
       <Navigation user={user} />
@@ -151,6 +187,9 @@ export default function AdminUsuariosPage() {
                 <th className="text-left text-xs font-medium text-ink-soft uppercase letter-spacing px-4 py-3 bg-gray-50">
                   Rol
                 </th>
+                <th className="text-right text-xs font-medium text-ink-soft uppercase letter-spacing px-4 py-3 bg-gray-50">
+                  Acciones
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -165,11 +204,12 @@ export default function AdminUsuariosPage() {
                     </td>
                     <td className="px-4 py-3"><Skeleton className="h-3.5 w-40" /></td>
                     <td className="px-4 py-3"><Skeleton className="h-5 w-24 rounded-full" /></td>
+                    <td className="px-4 py-3" />
                   </tr>
                 ))
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="text-center text-ink-soft py-8">
+                  <td colSpan={4} className="text-center text-ink-soft py-8">
                     No hay usuarios registrados
                   </td>
                 </tr>
@@ -206,6 +246,16 @@ export default function AdminUsuariosPage() {
                       >
                         {roleLabel(u.Rol)}
                       </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {!u.isPrimary && u.id !== user.id && (
+                        <button
+                          onClick={() => setUserToDelete({ id: u.id, nombre: u.Nombre })}
+                          className="text-xs font-medium text-red hover:underline underline-offset-2 transition-colors duration-150"
+                        >
+                          Eliminar
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -274,6 +324,17 @@ export default function AdminUsuariosPage() {
           </div>
         </form>
       </main>
+
+      <ConfirmDialog
+        open={!!userToDelete}
+        title="Eliminar usuario"
+        message={`¿Eliminar a "${userToDelete?.nombre}"? Perderá acceso al sistema de inmediato. Esta acción no se puede deshacer.`}
+        confirmLabel="Eliminar"
+        danger
+        isLoading={isDeleting}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setUserToDelete(null)}
+      />
 
       <Toast/>
     </div>

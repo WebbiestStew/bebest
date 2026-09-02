@@ -72,6 +72,11 @@ export interface Patient {
   contrato_terapeutico_aceptado?: boolean;
   // Clinical fields (captured progressively via the Sesión 1/2/3 workflow)
   historia_clinica?: string;
+  // JSON-serialized string[] of the standard test battery applied (Beck,
+  // SCL-90-R, ISRA, SCID-II, Test de Creencias de Ellis, or "Otra: ...") —
+  // see parseBateriaPruebas/serializeBateriaPruebas in lib/utils.ts. Scores
+  // and interpretation stay on the signed physical "Informe de Resultados",
+  // same as the rest of that document — this just tracks which were applied.
   bateria_pruebas?: string;
   observaciones_pruebas?: string;
   dx_principal?: string;

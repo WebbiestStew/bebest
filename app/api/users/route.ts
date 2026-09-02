@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUserFromRequest, isAdmin } from '@/lib/session';
-import { findRecords, createRecord } from '@/lib/airtable';
+import { findRecords, createRecord, deleteRecord } from '@/lib/airtable';
 import { User } from '@/lib/types';
 import { hashPassword } from '@/lib/auth';
 
+// The hardcoded primary admin (see lib/auth.ts) has no backing Airtable
+// record — nothing to delete, and no other account should be able to.
+const PRIMARY_ADMIN_ID = 'admin_001';
+
 export async function GET(request: NextRequest) {
   const user = await getCurrentUserFromRequest(request);
-  if (!user) {
+  if (!user || !(await isAdmin(request))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -21,9 +25,12 @@ export async function GET(request: NextRequest) {
       filterFormula = "{Rol} = 'admin'";
     }
 
-    const users = await findRecords<User>('users', filterFormula);
+    const users = await findRecords<User & { Password_hash?: string }>('users', filterFormula);
+    // Never send password hashes to the client — the account list has no use
+    // for them, and there's no reason to put them on the wire at all.
+    const sanitized = users.map(({ Password_hash, ...rest }) => rest);
 
-    return NextResponse.json({ users });
+    return NextResponse.json({ users: sanitized });
   } catch (error) {
     console.error('Error fetching users:', error);
     return NextResponse.json(
@@ -51,18 +58,57 @@ export async function POST(request: NextRequest) {
 
     const passwordHash = await hashPassword(body.password);
 
-    const newUser = await createRecord<User>('users', {
+    const newUser = await createRecord<User & { Password_hash?: string }>('users', {
       Nombre: body.nombre,
       Email: body.email,
       Password_hash: passwordHash,
       Rol: body.rol || 'user',
     });
+    const { Password_hash, ...sanitizedUser } = newUser;
 
-    return NextResponse.json({ user: newUser }, { status: 201 });
+    return NextResponse.json({ user: sanitizedUser }, { status: 201 });
   } catch (error) {
     console.error('Error creating user:', error);
     return NextResponse.json(
-      { error: 'Error al crear usuario' },
+      { error: (error as Error).message || 'Error al crear usuario' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  const user = await getCurrentUserFromRequest(request);
+  if (!user || !(await isAdmin(request))) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+
+    if (!id) {
+      return NextResponse.json({ error: 'ID de usuario requerido' }, { status: 400 });
+    }
+    if (id === PRIMARY_ADMIN_ID) {
+      return NextResponse.json(
+        { error: 'No se puede eliminar la cuenta principal.' },
+        { status: 400 }
+      );
+    }
+    if (id === user.id) {
+      return NextResponse.json(
+        { error: 'No puedes eliminar tu propia cuenta mientras tienes sesión iniciada.' },
+        { status: 400 }
+      );
+    }
+
+    await deleteRecord('users', id);
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    return NextResponse.json(
+      { error: 'Error al eliminar usuario' },
       { status: 500 }
     );
   }

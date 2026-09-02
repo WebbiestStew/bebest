@@ -5,13 +5,27 @@ import { useRouter } from 'next/navigation';
 import { Navigation } from '@/components/Navigation';
 import { Toast } from '@/components/Toast';
 import { Button, BackButton } from '@/components/Button';
-import { Input, Select, Textarea } from '@/components/FormInputs';
+import { Input, Select, Textarea, Checkbox } from '@/components/FormInputs';
 import { useAuth } from '@/lib/useAuth';
 import { Patient } from '@/lib/types';
+import { serializeBateriaPruebas } from '@/lib/utils';
+
+// The standard battery applied at CPCCM/bebest, per the "VI. Pruebas
+// aplicadas y resultados" section of the real Informe de Resultados —
+// scores/graphs/interpretation stay on that signed document, this just
+// tracks which tests were applied.
+const PRUEBAS_OPTIONS = [
+  'Inventario de Depresión de Beck',
+  'SCL-90-R',
+  'ISRA',
+  'SCID-II',
+  'Test de Creencias de Ellis',
+];
 
 interface FormErrors {
   paciente?: string;
   bateria?: string;
+  pruebasOtro?: string;
   observaciones?: string;
 }
 
@@ -23,10 +37,15 @@ export default function Sesion2Page() {
   const [errors, setErrors] = useState<FormErrors>({});
   const [formData, setFormData] = useState({
     paciente: '',
-    bateria_pruebas: '',
+    pruebasOtro: '',
     observaciones: '',
   });
+  const [pruebas, setPruebas] = useState<string[]>([]);
   const [patientFull, setPatientFull] = useState<Patient | null>(null);
+
+  const togglePrueba = (value: string) => {
+    setPruebas((prev) => (prev.includes(value) ? prev.filter((p) => p !== value) : [...prev, value]));
+  };
 
   useEffect(() => {
     const fetchPatients = async () => {
@@ -48,10 +67,20 @@ export default function Sesion2Page() {
   const validateForm = () => {
     const newErrors: FormErrors = {};
     if (!formData.paciente) newErrors.paciente = 'Este campo es obligatorio.';
-    if (!formData.bateria_pruebas.trim()) newErrors.bateria = 'Este campo es obligatorio.';
+    if (pruebas.length === 0) newErrors.bateria = 'Selecciona al menos una opción.';
+    if (pruebas.includes('Otra')) {
+      newErrors.pruebasOtro = formData.pruebasOtro.trim() ? undefined : 'Este campo es obligatorio.';
+    }
     if (!formData.observaciones.trim()) newErrors.observaciones = 'Este campo es obligatorio.';
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    const cleaned = Object.fromEntries(Object.entries(newErrors).filter(([, v]) => v)) as FormErrors;
+    setErrors(cleaned);
+    return Object.keys(cleaned).length === 0;
+  };
+
+  const bateriaFinal = () => {
+    const final = pruebas.filter((p) => p !== 'Otra');
+    if (pruebas.includes('Otra')) final.push(`Otra: ${formData.pruebasOtro.trim()}`);
+    return serializeBateriaPruebas(final);
   };
 
   const handlePatientChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -71,7 +100,7 @@ export default function Sesion2Page() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          bateria_pruebas: formData.bateria_pruebas.trim(),
+          bateria_pruebas: bateriaFinal(),
           observaciones_pruebas: formData.observaciones.trim(),
           num_sesiones: ((patientFull as any)?.num_sesiones || 0) + 1,
           expediente_completo: true,
@@ -97,10 +126,10 @@ export default function Sesion2Page() {
 
   const handleSaveAndExit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.paciente || !formData.bateria_pruebas.trim() || !formData.observaciones.trim()) {
+    if (!formData.paciente || pruebas.length === 0 || !formData.observaciones.trim()) {
       setErrors({
         paciente: !formData.paciente ? 'Este campo es obligatorio.' : undefined,
-        bateria: !formData.bateria_pruebas.trim() ? 'Este campo es obligatorio.' : undefined,
+        bateria: pruebas.length === 0 ? 'Selecciona al menos una opción.' : undefined,
         observaciones: !formData.observaciones.trim() ? 'Este campo es obligatorio.' : undefined,
       });
       return;
@@ -112,7 +141,7 @@ export default function Sesion2Page() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          bateria_pruebas: formData.bateria_pruebas.trim(),
+          bateria_pruebas: bateriaFinal(),
           observaciones_pruebas: formData.observaciones.trim(),
           num_sesiones: ((patientFull as any)?.num_sesiones || 0) + 1,
           expediente_completo: false,
@@ -196,14 +225,30 @@ export default function Sesion2Page() {
             required
           />
 
-          <Input
-            label="Batería de Prueba aplicada"
-            placeholder="Nombre de la prueba o pruebas aplicadas"
-            value={formData.bateria_pruebas}
-            onChange={(e) => setFormData({ ...formData, bateria_pruebas: e.target.value })}
-            error={errors.bateria}
-            required
-          />
+          <div>
+            <label className="text-sm font-medium text-ink-soft mb-2 block">
+              Batería de Prueba aplicada
+              <span className="text-clay ml-1">*</span>
+              <span className="font-normal text-xs text-ink-soft ml-2">(puede seleccionar más de una opción)</span>
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 border border-line rounded-lg overflow-hidden">
+              {PRUEBAS_OPTIONS.map((p) => (
+                <Checkbox key={p} label={p} checked={pruebas.includes(p)} onChange={() => togglePrueba(p)} />
+              ))}
+              <Checkbox label="Otra" checked={pruebas.includes('Otra')} onChange={() => togglePrueba('Otra')} />
+            </div>
+            {errors.bateria && <div className="text-xs text-red mt-1">{errors.bateria}</div>}
+            {pruebas.includes('Otra') && (
+              <div className="mt-4">
+                <Input
+                  label="Especifica"
+                  value={formData.pruebasOtro}
+                  onChange={(e) => setFormData({ ...formData, pruebasOtro: e.target.value })}
+                  error={errors.pruebasOtro}
+                />
+              </div>
+            )}
+          </div>
 
           <Textarea
             label="Observaciones"

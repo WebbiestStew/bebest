@@ -102,6 +102,24 @@ export function serializeMotivoConsulta(items: string[]): string {
   return items.length ? JSON.stringify(items) : '';
 }
 
+// Same JSON-in-text-field pattern as motivo_consulta — bateria_pruebas used
+// to be one free-text field, now it's a checklist of the standard battery.
+export function parseBateriaPruebas(raw?: string): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    // Pre-restructure values were free text (e.g. "Beck y SCL-90-R") —
+    // surface as a one-item list instead of losing it.
+    return [raw];
+  }
+}
+
+export function serializeBateriaPruebas(items: string[]): string {
+  return items.length ? JSON.stringify(items) : '';
+}
+
 // Toast notification helper
 export function showToast(message: string, isError: boolean = false) {
   const event = new CustomEvent('showToast', {

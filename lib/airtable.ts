@@ -73,7 +73,13 @@ export async function createRecord<T>(
     });
 
     if (!response.ok) {
-      throw new Error(`Airtable API error: ${response.statusText}`);
+      // Airtable's JSON error body (e.g. "INVALID_VALUE_FOR_COLUMN") is far
+      // more useful for debugging than the bare HTTP status text — surface it
+      // when present instead of discarding it.
+      const errorBody = await response.json().catch(() => null);
+      throw new Error(
+        errorBody?.error?.message || errorBody?.error?.type || `Airtable API error: ${response.statusText}`
+      );
     }
 
     const data = await response.json();
@@ -85,6 +91,23 @@ export async function createRecord<T>(
     } as T & { id: string };
   } catch (error) {
     console.error(`Error creating record in ${table}:`, error);
+    throw error;
+  }
+}
+
+// Helper to delete a record
+export async function deleteRecord(table: string, recordId: string): Promise<void> {
+  try {
+    const response = await fetch(
+      `${AIRTABLE_API_URL}/${BASE_ID}/${table}/${recordId}`,
+      { method: 'DELETE', headers }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Airtable API error: ${response.statusText}`);
+    }
+  } catch (error) {
+    console.error(`Error deleting record from ${table}:`, error);
     throw error;
   }
 }
