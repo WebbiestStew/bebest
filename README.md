@@ -220,7 +220,8 @@ Interno — Solo para uso de la consulta.
 
 ## 👥 Equipo
 
-Construido para Fernanda Ruiz, Luis Medina y Ana Torres.
+Construido para BeBest by CPCCM.
+-stewy
 
 ---
 
