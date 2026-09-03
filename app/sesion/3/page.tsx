@@ -6,6 +6,7 @@ import { Navigation } from '@/components/Navigation';
 import { Toast } from '@/components/Toast';
 import { Button, BackButton } from '@/components/Button';
 import { Input, Select, Checkbox } from '@/components/FormInputs';
+import { FormPrintPreview, PreviewSection, PreviewField } from '@/components/FormPrintPreview';
 import { useAuth } from '@/lib/useAuth';
 import { Patient } from '@/lib/types';
 import {
@@ -16,6 +17,7 @@ import {
   findDsm5Code,
 } from '@/lib/utils';
 import { DSM5_CODES } from '@/lib/dsm5Codes';
+import { Dsm5Picker } from '@/components/Dsm5Picker';
 
 interface FormErrors {
   paciente?: string;
@@ -42,27 +44,35 @@ export default function Sesion3Page() {
     plan_no_suicidio: false,
     consentimiento: false,
     referido_psiquiatria: false,
-    informe_firmado_terapeuta: false,
-    informe_firmado_supervisor: false,
-    informe_firmado_paciente: false,
+    psiquiatra_nombre: '',
+    psiquiatra_contacto: '',
+    psiquiatra_datos_pendientes: false,
   });
   const [planObjetivos, setPlanObjetivos] = useState<PlanObjetivo[]>([{ ...EMPTY_OBJETIVO }]);
   const [patientFull, setPatientFull] = useState<Patient | null>(null);
   const [isUploadingInforme, setIsUploadingInforme] = useState(false);
   const [informeDocumento, setInformeDocumento] = useState<{ filename: string } | null>(null);
+  const [isUploadingPlanDoc, setIsUploadingPlanDoc] = useState(false);
+  const [planDoc, setPlanDoc] = useState<{ filename: string } | null>(null);
+  const [isUploadingConsentDoc, setIsUploadingConsentDoc] = useState(false);
+  const [consentDoc, setConsentDoc] = useState<{ filename: string } | null>(null);
+  const [todaysCita, setTodaysCita] = useState<any>(null);
+  const [citas, setCitas] = useState<any[]>([]);
 
   useEffect(() => {
-    const fetchPatients = async () => {
+    const fetchData = async () => {
       try {
-        const res = await fetch('/api/patients');
-        const data = await res.json();
-        setPatients(data.patients || []);
+        const [patientsRes, citasRes] = await Promise.all([fetch('/api/patients'), fetch('/api/citas')]);
+        const patientsData = await patientsRes.json();
+        const citasData = await citasRes.json();
+        setPatients(patientsData.patients || []);
+        setCitas(citasData.citas || []);
       } catch (error) {
-        console.error('Error fetching patients:', error);
+        console.error('Error fetching data:', error);
       }
     };
 
-    if (user) fetchPatients();
+    if (user) fetchData();
   }, [user]);
 
   if (isLoading) return null;
@@ -77,15 +87,14 @@ export default function Sesion3Page() {
     if (!planObjetivos.some((o) => o.objetivo.trim() && o.tecnicas.trim())) {
       newErrors.plan = 'Agrega al menos un objetivo con sus técnicas.';
     }
-    if (
-      !formData.plan_no_suicidio ||
-      !formData.consentimiento ||
-      !formData.referido_psiquiatria ||
-      !formData.informe_firmado_terapeuta ||
-      !formData.informe_firmado_supervisor ||
-      !formData.informe_firmado_paciente
-    ) {
+    if (!formData.plan_no_suicidio || !formData.consentimiento) {
       newErrors.checks = 'Todos los checkpoints son obligatorios.';
+    }
+    if (formData.plan_no_suicidio && !planDoc) {
+      newErrors.checks = 'Sube el documento del Plan de No Suicidio antes de marcarlo.';
+    }
+    if (formData.consentimiento && !consentDoc) {
+      newErrors.checks = 'Sube el documento del Consentimiento Informado antes de marcarlo.';
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -97,8 +106,21 @@ export default function Sesion3Page() {
     const p = patients.find(pat => pat.id === patientId);
     setPatientFull(p || null);
     setInformeDocumento(null);
+    // Reflect docs already uploaded in an earlier visit — otherwise
+    // reselecting this patient would show the checkbox permanently disabled
+    // even though the file genuinely exists in Airtable.
+    const existingPlanDoc = (p as any)?.plan_no_suicidio_doc?.[0];
+    const existingConsentDoc = (p as any)?.consentimiento_informado_doc?.[0];
+    setPlanDoc(existingPlanDoc ? { filename: existingPlanDoc.filename } : null);
+    setConsentDoc(existingConsentDoc ? { filename: existingConsentDoc.filename } : null);
     const existingPlan = parsePlanTratamiento((p as any)?.plan_tratamiento);
     setPlanObjetivos(existingPlan.length ? existingPlan : [{ ...EMPTY_OBJETIVO }]);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const match = citas.find(
+      (c) => (c.paciente || [])[0] === patientId && (c.fecha || '').slice(0, 10) === today
+    );
+    setTodaysCita(match || null);
   };
 
   const updateObjetivo = (index: number, field: keyof PlanObjetivo, value: string) => {
@@ -110,7 +132,12 @@ export default function Sesion3Page() {
   const removeObjetivo = (index: number) =>
     setPlanObjetivos((rows) => (rows.length > 1 ? rows.filter((_, i) => i !== index) : rows));
 
-  const handleUploadInforme = async (file: File) => {
+  const uploadDoc = async (
+    file: File,
+    field: 'documentos' | 'plan_no_suicidio_doc' | 'consentimiento_informado_doc',
+    setUploading: (v: boolean) => void,
+    setDoc: (v: { filename: string } | null) => void
+  ) => {
     if (!formData.paciente) {
       window.dispatchEvent(
         new CustomEvent('showToast', { detail: { message: 'Selecciona un paciente primero.', isError: true } })
@@ -124,16 +151,16 @@ export default function Sesion3Page() {
       return;
     }
 
-    setIsUploadingInforme(true);
+    setUploading(true);
     try {
       const base64 = await fileToBase64(file);
       const res = await fetch(`/api/patients/${formData.paciente}/documentos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filename: file.name, contentType: file.type || 'application/octet-stream', base64 }),
+        body: JSON.stringify({ filename: file.name, contentType: file.type || 'application/octet-stream', base64, field }),
       });
       if (res.ok) {
-        setInformeDocumento({ filename: file.name });
+        setDoc({ filename: file.name });
         window.dispatchEvent(
           new CustomEvent('showToast', { detail: { message: 'Documento subido correctamente.', isError: false } })
         );
@@ -148,9 +175,14 @@ export default function Sesion3Page() {
         new CustomEvent('showToast', { detail: { message: 'Error al subir el archivo', isError: true } })
       );
     } finally {
-      setIsUploadingInforme(false);
+      setUploading(false);
     }
   };
+
+  const handleUploadInforme = (file: File) => uploadDoc(file, 'documentos', setIsUploadingInforme, setInformeDocumento);
+  const handleUploadPlanDoc = (file: File) => uploadDoc(file, 'plan_no_suicidio_doc', setIsUploadingPlanDoc, setPlanDoc);
+  const handleUploadConsentDoc = (file: File) =>
+    uploadDoc(file, 'consentimiento_informado_doc', setIsUploadingConsentDoc, setConsentDoc);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -171,14 +203,40 @@ export default function Sesion3Page() {
           plan_no_suicidio: formData.plan_no_suicidio,
           consentimiento_informado: formData.consentimiento,
           referido_psiquiatria: formData.referido_psiquiatria,
-          informe_firmado_terapeuta: formData.informe_firmado_terapeuta,
-          informe_firmado_supervisor: formData.informe_firmado_supervisor,
-          informe_firmado_paciente: formData.informe_firmado_paciente,
+          ...(formData.referido_psiquiatria
+            ? {
+                psiquiatra_nombre: formData.psiquiatra_nombre.trim(),
+                psiquiatra_contacto: formData.psiquiatra_contacto.trim(),
+                psiquiatra_datos_pendientes: formData.psiquiatra_datos_pendientes,
+              }
+            : {}),
           num_sesiones: ((patientFull as any)?.num_sesiones || 0) + 1,
           etapa_actual: 'Tratamiento',
           expediente_completo: true,
         }),
       });
+
+      // Auto-linked to today's cita (see handlePatientChange) — closing the
+      // loop between the scheduled appointment and the session actually done.
+      if (todaysCita && todaysCita.estado !== 'Completada' && todaysCita.estado !== 'Cancelada') {
+        await fetch(`/api/citas/${todaysCita.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ estado: 'Completada' }),
+        });
+      }
+
+      if (formData.referido_psiquiatria && formData.psiquiatra_datos_pendientes) {
+        await fetch('/api/alerts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            paciente_id: formData.paciente,
+            paso_incompleto: 'Datos del psiquiatra pendientes',
+            campos_faltantes: 1,
+          }),
+        });
+      }
 
       window.dispatchEvent(
         new CustomEvent('showToast', {
@@ -201,7 +259,9 @@ export default function Sesion3Page() {
     <div className="flex flex-col md:flex-row h-screen bg-bg">
       <Navigation user={user} />
 
-      <main className="flex-1 overflow-auto p-4 sm:p-8 lg:p-12 max-w-2xl">
+      <main className="flex-1 overflow-auto p-4 sm:p-8 lg:p-12">
+        <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-8 lg:items-start max-w-6xl">
+        <div className="max-w-2xl print:hidden">
         <BackButton onClick={() => router.push('/sesion/2')} />
 
         <div className="mb-8 animate-fade-in-up">
@@ -247,6 +307,11 @@ export default function Sesion3Page() {
             error={errors.paciente}
             required
           />
+          {todaysCita && (
+            <div className="-mt-3 text-xs text-sage-deep bg-sage-pale/40 rounded-lg px-3 py-2">
+              📅 Vinculado a la cita de hoy a las {todaysCita.hora} — se marcará como completada al guardar.
+            </div>
+          )}
 
           <datalist id="dsm5-dx-list">
             {DSM5_CODES.map((d) => (
@@ -255,42 +320,25 @@ export default function Sesion3Page() {
           </datalist>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            <div>
-              <Input
-                label="Dx Principal"
-                placeholder="Diagnóstico principal"
-                list="dsm5-dx-list"
-                value={formData.dx_principal}
-                onChange={(e) => setFormData({ ...formData, dx_principal: e.target.value })}
-                error={errors.dx_principal}
-                required
-              />
-              {findDsm5Code(formData.dx_principal) && (
-                <div className="text-xs text-sage-deep font-mono mt-1.5">
-                  Código DSM-5-TR: {findDsm5Code(formData.dx_principal)}
-                </div>
-              )}
-            </div>
-            <div>
-              <Input
-                label="Dx Comorbilidad"
-                placeholder="Diagnóstico(s) asociado(s)"
-                list="dsm5-dx-list"
-                value={formData.dx_comorbilidad}
-                onChange={(e) => setFormData({ ...formData, dx_comorbilidad: e.target.value })}
-                error={errors.dx_comorbilidad}
-                required
-              />
-              {findDsm5Code(formData.dx_comorbilidad) && (
-                <div className="text-xs text-sage-deep font-mono mt-1.5">
-                  Código DSM-5-TR: {findDsm5Code(formData.dx_comorbilidad)}
-                </div>
-              )}
-            </div>
+            <Dsm5Picker
+              label="Dx Principal"
+              value={formData.dx_principal}
+              onChange={(name) => setFormData({ ...formData, dx_principal: name })}
+              error={errors.dx_principal}
+              required
+            />
+            <Dsm5Picker
+              label="Dx Comorbilidad"
+              value={formData.dx_comorbilidad}
+              onChange={(name) => setFormData({ ...formData, dx_comorbilidad: name })}
+              error={errors.dx_comorbilidad}
+              required
+            />
           </div>
           <p className="text-xs text-ink-soft -mt-4">
-            Empieza a escribir para ver sugerencias del DSM-5-TR con su código — elegir una de la lista asegura
-            que el código aparezca; escribir libremente también funciona, solo sin código.
+            Empieza a escribir para ver sugerencias del DSM-5-TR con su código. Si el diagnóstico tiene niveles de
+            gravedad (leve, moderado, grave) u otras variantes, aparece un segundo campo para elegir cuál — escribir
+            libremente también funciona, solo sin código.
           </p>
 
           <Input
@@ -345,33 +393,110 @@ export default function Sesion3Page() {
             {errors.plan && <div className="text-xs text-red mt-1">{errors.plan}</div>}
           </div>
 
-          <div className="border-t border-line pt-6">
-            <Checkbox
-              label="Plan de No Suicidio"
-              sublabel="Requerido antes de cerrar la evaluación."
-              checked={formData.plan_no_suicidio}
-              onChange={(e) => setFormData({ ...formData, plan_no_suicidio: e.target.checked })}
-              required
-            />
-            <Checkbox
-              label="Consentimiento Informado firmado"
-              checked={formData.consentimiento}
-              onChange={(e) => setFormData({ ...formData, consentimiento: e.target.checked })}
-              required
-            />
-            <Checkbox
-              label="Se tocó el tema de referir a Psiquiatría o Tx complementario"
-              checked={formData.referido_psiquiatria}
-              onChange={(e) => setFormData({ ...formData, referido_psiquiatria: e.target.checked })}
-              required
-            />
+          <div className="border-t border-line pt-6 space-y-4">
+            <div>
+              <label className="flex items-center justify-center gap-2 px-4 py-3 border border-dashed border-line rounded-lg text-sm text-ink-soft cursor-pointer transition-colors duration-150 hover:bg-sage-pale/30 hover:border-sage">
+                {isUploadingPlanDoc ? (
+                  'Subiendo…'
+                ) : planDoc ? (
+                  <>📄 {planDoc.filename} — subir otro</>
+                ) : (
+                  '📎 Subir documento del Plan de No Suicidio'
+                )}
+                <input
+                  type="file"
+                  accept="application/pdf,image/*"
+                  className="hidden"
+                  disabled={isUploadingPlanDoc}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleUploadPlanDoc(file);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+              <Checkbox
+                label="Plan de No Suicidio"
+                sublabel={planDoc ? 'Requerido antes de cerrar la evaluación.' : 'Sube el documento para poder marcarlo.'}
+                checked={formData.plan_no_suicidio}
+                disabled={!planDoc}
+                onChange={(e) => setFormData({ ...formData, plan_no_suicidio: e.target.checked })}
+                required
+              />
+            </div>
+
+            <div>
+              <label className="flex items-center justify-center gap-2 px-4 py-3 border border-dashed border-line rounded-lg text-sm text-ink-soft cursor-pointer transition-colors duration-150 hover:bg-sage-pale/30 hover:border-sage">
+                {isUploadingConsentDoc ? (
+                  'Subiendo…'
+                ) : consentDoc ? (
+                  <>📄 {consentDoc.filename} — subir otro</>
+                ) : (
+                  '📎 Subir Consentimiento Informado firmado'
+                )}
+                <input
+                  type="file"
+                  accept="application/pdf,image/*"
+                  className="hidden"
+                  disabled={isUploadingConsentDoc}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleUploadConsentDoc(file);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+              <Checkbox
+                label="Consentimiento Informado firmado"
+                sublabel={consentDoc ? undefined : 'Sube el documento para poder marcarlo.'}
+                checked={formData.consentimiento}
+                disabled={!consentDoc}
+                onChange={(e) => setFormData({ ...formData, consentimiento: e.target.checked })}
+                required
+              />
+            </div>
+
+            <div>
+              <Checkbox
+                label="Se tocó el tema de referir a Psiquiatría o Tx complementario"
+                sublabel="Déjalo sin marcar si no aplica — no es obligatorio."
+                checked={formData.referido_psiquiatria}
+                onChange={(e) => setFormData({ ...formData, referido_psiquiatria: e.target.checked })}
+              />
+              {formData.referido_psiquiatria && (
+                <div className="mt-3 pl-3.5 border-l-2 border-sage-pale space-y-4">
+                  <Checkbox
+                    label="Aún no tengo los datos del psiquiatra — dejar pendiente"
+                    sublabel="Se enviará una alerta para dar seguimiento."
+                    checked={formData.psiquiatra_datos_pendientes}
+                    onChange={(e) =>
+                      setFormData({ ...formData, psiquiatra_datos_pendientes: e.target.checked })
+                    }
+                  />
+                  {!formData.psiquiatra_datos_pendientes && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <Input
+                        label="Nombre del psiquiatra"
+                        value={formData.psiquiatra_nombre}
+                        onChange={(e) => setFormData({ ...formData, psiquiatra_nombre: e.target.value })}
+                      />
+                      <Input
+                        label="Teléfono o correo de contacto"
+                        value={formData.psiquiatra_contacto}
+                        onChange={(e) => setFormData({ ...formData, psiquiatra_contacto: e.target.value })}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             {errors.checks && <div className="text-xs text-red mt-2">{errors.checks}</div>}
           </div>
 
           <div className="border-t border-line pt-6">
             <h3 className="text-sm font-medium text-ink mb-1">Informe de resultados firmado</h3>
             <p className="text-xs text-ink-soft mb-4">
-              Sube el documento físico ya firmado y marca quién lo firmó.
+              Sube el documento físico ya firmado por el terapeuta, el/la supervisor/a y el paciente.
             </p>
 
             <label className="flex items-center justify-center gap-2 px-4 py-3 border border-dashed border-line rounded-lg text-sm text-ink-soft cursor-pointer transition-colors duration-150 hover:bg-sage-pale/30 hover:border-sage">
@@ -394,28 +519,6 @@ export default function Sesion3Page() {
                 }}
               />
             </label>
-
-            <div className="mt-2">
-              <Checkbox
-                label="Firmado por el terapeuta"
-                checked={formData.informe_firmado_terapeuta}
-                onChange={(e) => setFormData({ ...formData, informe_firmado_terapeuta: e.target.checked })}
-                required
-              />
-              <Checkbox
-                label="Firmado por el/la supervisor/a"
-                checked={formData.informe_firmado_supervisor}
-                onChange={(e) => setFormData({ ...formData, informe_firmado_supervisor: e.target.checked })}
-                required
-              />
-              <Checkbox
-                label="Firmado por el paciente"
-                checked={formData.informe_firmado_paciente}
-                onChange={(e) => setFormData({ ...formData, informe_firmado_paciente: e.target.checked })}
-                required
-              />
-              {errors.checks && <div className="text-xs text-red mt-2">{errors.checks}</div>}
-            </div>
           </div>
 
           <div className="flex items-center gap-4 p-6 -m-8 border-t border-line bg-gray-50">
@@ -432,6 +535,48 @@ export default function Sesion3Page() {
             </Button>
           </div>
         </form>
+        </div>
+
+        <FormPrintPreview title="Sesión 3 · Resultados" subtitle="Informe clínico y cierre de la evaluación">
+          <PreviewSection title="Paciente">
+            <PreviewField label="Nombre" value={patientFull?.paciente} full />
+            {todaysCita && <PreviewField label="Cita de hoy" value={todaysCita.hora} />}
+          </PreviewSection>
+          <PreviewSection title="Diagnóstico">
+            <PreviewField label="Dx Principal" value={formData.dx_principal} full />
+            <PreviewField label="Código" value={findDsm5Code(formData.dx_principal)} />
+            <PreviewField label="Dx Comorbilidad" value={formData.dx_comorbilidad} full />
+            <PreviewField label="Código" value={findDsm5Code(formData.dx_comorbilidad)} />
+            <PreviewField label="Otros problemas" value={formData.dx_otros} full />
+          </PreviewSection>
+          <PreviewSection title="Plan de tratamiento">
+            {planObjetivos
+              .filter((o) => o.objetivo.trim() || o.tecnicas.trim())
+              .map((o, i) => (
+                <PreviewField key={i} label={`Objetivo ${i + 1}`} value={[o.objetivo, o.tecnicas].filter(Boolean).join(' — ')} full />
+              ))}
+          </PreviewSection>
+          <PreviewSection title="Checkpoints">
+            <PreviewField label="Plan de No Suicidio" value={formData.plan_no_suicidio} />
+            <PreviewField label="Consentimiento Informado" value={formData.consentimiento} />
+            <PreviewField label="Referido a Psiquiatría" value={formData.referido_psiquiatria} />
+            {formData.referido_psiquiatria && (
+              <>
+                <PreviewField
+                  label="Datos del psiquiatra"
+                  value={
+                    formData.psiquiatra_datos_pendientes
+                      ? 'Pendientes'
+                      : [formData.psiquiatra_nombre, formData.psiquiatra_contacto].filter(Boolean).join(' — ')
+                  }
+                  full
+                />
+              </>
+            )}
+            <PreviewField label="Informe firmado subido" value={!!informeDocumento} />
+          </PreviewSection>
+        </FormPrintPreview>
+        </div>
       </main>
 
       <Toast />

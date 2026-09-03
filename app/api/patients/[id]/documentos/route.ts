@@ -5,6 +5,17 @@ import { Patient } from '@/lib/types';
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024; // 15MB
 
+// Which attachment fields this endpoint is allowed to write to — 'documentos'
+// is the general-purpose bucket (INE, contrato, informe); the other two are
+// dedicated fields so their "is this actually uploaded" state survives a
+// page reload without having to guess from filenames in the general bucket.
+const ALLOWED_FIELDS = ['documentos', 'plan_no_suicidio_doc', 'consentimiento_informado_doc'] as const;
+type AllowedField = (typeof ALLOWED_FIELDS)[number];
+
+function isAllowedField(field: unknown): field is AllowedField {
+  return typeof field === 'string' && (ALLOWED_FIELDS as readonly string[]).includes(field);
+}
+
 async function checkAccess(request: NextRequest, patientId: string) {
   const user = await getCurrentUserFromRequest(request);
   if (!user) return { error: 'Unauthorized', status: 401 } as const;
@@ -31,6 +42,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   try {
     const body = await request.json();
     const { filename, contentType, base64 } = body;
+    const field = isAllowedField(body.field) ? body.field : 'documentos';
     if (!filename || !contentType || !base64) {
       return NextResponse.json({ error: 'Archivo inválido' }, { status: 400 });
     }
@@ -40,7 +52,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       return NextResponse.json({ error: 'El archivo supera el límite de 15MB' }, { status: 400 });
     }
 
-    await uploadAttachment('pacientes_2025_2026', params.id, 'documentos', {
+    await uploadAttachment('pacientes_2025_2026', params.id, field, {
       filename,
       contentType,
       base64,
@@ -63,15 +75,17 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
   try {
     const { searchParams } = new URL(request.url);
     const attachmentId = searchParams.get('attachmentId');
+    const fieldParam = searchParams.get('field');
+    const field = isAllowedField(fieldParam) ? fieldParam : 'documentos';
     if (!attachmentId) {
       return NextResponse.json({ error: 'attachmentId requerido' }, { status: 400 });
     }
 
-    const current = ((access.patient as any).documentos || []) as { id: string }[];
+    const current = ((access.patient as any)[field] || []) as { id: string }[];
     const remaining = current.filter((d) => d.id !== attachmentId);
 
     const updated = await updateRecord<Patient>('pacientes_2025_2026', params.id, {
-      documentos: remaining,
+      [field]: remaining,
     });
 
     return NextResponse.json({ patient: updated });

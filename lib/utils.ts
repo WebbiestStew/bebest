@@ -14,12 +14,10 @@ function icsEscape(text: string): string {
   return text.replace(/\\/g, '\\\\').replace(/[,;]/g, '\\$&').replace(/\r?\n/g, '\\n');
 }
 
-// Builds a single-event .ics file for a cita, downloadable/openable to add it
-// to the phone's own calendar app (Google/Apple/Outlook all support this).
 // Monterrey (America/Monterrey) has used fixed UTC-6 standard time year-round
 // since Mexico dropped DST outside the border strip in 2022, so the offset
 // below is hardcoded rather than looked up from a timezone database.
-export function buildCitaIcs(cita: Cita & { id: string }): string {
+function buildVevent(cita: Cita & { id: string }, dtstamp: string): string {
   const datePart = (cita.fecha || '').slice(0, 10);
   const start = new Date(`${datePart}T${cita.hora || '00:00'}:00-06:00`);
   const end = new Date(start.getTime() + SESSION_MINUTES * 60 * 1000);
@@ -30,20 +28,55 @@ export function buildCitaIcs(cita: Cita & { id: string }): string {
   const description = icsEscape(descriptionParts.join('\n'));
 
   return [
-    'BEGIN:VCALENDAR',
-    'VERSION:2.0',
-    'PRODID:-//Consulta//Agenda//ES',
-    'CALSCALE:GREGORIAN',
-    'METHOD:PUBLISH',
     'BEGIN:VEVENT',
     `UID:cita-${cita.id}@consulta.bebest.com`,
-    `DTSTAMP:${toIcsUtc(new Date())}`,
+    `DTSTAMP:${dtstamp}`,
     `DTSTART:${toIcsUtc(start)}`,
     `DTEND:${toIcsUtc(end)}`,
     `SUMMARY:${summary}`,
     `DESCRIPTION:${description}`,
     `STATUS:${cita.estado === 'Cancelada' ? 'CANCELLED' : 'CONFIRMED'}`,
+  ].join('\r\n');
+}
+
+// Builds a single-event .ics file for a cita, downloadable/openable to add it
+// to the phone's own calendar app (Google/Apple/Outlook all support this).
+// One-time snapshot — later edits to the cita don't reach a phone that
+// downloaded this file. For that, see buildCitasFeedIcs below.
+export function buildCitaIcs(cita: Cita & { id: string }): string {
+  const dtstamp = toIcsUtc(new Date());
+  return [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Consulta//Agenda//ES',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    buildVevent(cita, dtstamp),
     'END:VEVENT',
+    'END:VCALENDAR',
+  ].join('\r\n');
+}
+
+// Builds a multi-event .ics FEED (all of a therapist's citas) meant to be
+// subscribed to (webcal://...), not downloaded once — calendar apps refetch
+// a subscribed feed periodically on their own, so edits made later in Agenda
+// (reschedule, cancel, etc.) show up automatically without the user doing
+// anything on their phone.
+export function buildCitasFeedIcs(citas: (Cita & { id: string })[]): string {
+  const dtstamp = toIcsUtc(new Date());
+  const vevents = citas.map((c) => {
+    const block = buildVevent(c, dtstamp);
+    return `${block}\r\nEND:VEVENT`;
+  });
+  return [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Consulta//Agenda//ES',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'X-WR-CALNAME:Consulta — Mi agenda',
+    'REFRESH-INTERVAL;VALUE=DURATION:PT1H',
+    ...vevents,
     'END:VCALENDAR',
   ].join('\r\n');
 }
@@ -57,6 +90,37 @@ export function findDsm5Code(name: string): string | undefined {
   const target = name.trim().toLowerCase();
   if (!target) return undefined;
   return DSM5_CODES.find((e) => e.name.toLowerCase() === target)?.code;
+}
+
+// Groups the flat DSM5_CODES list by base disorder name (everything before
+// the FIRST " — ") so a diagnosis can be picked in two steps: the disorder
+// itself, then — only if it actually has more than one code (severity levels,
+// substance-specific variants, etc.) — which specific one. Splitting on the
+// first separator (not the last) keeps compound labels like "Leve — Sustancia
+// anfetamínica" together as one variant string rather than fragmenting
+// further; the picker just shows that whole remainder as the option text.
+export interface Dsm5Variant {
+  label: string;
+  code: string;
+}
+
+const DSM5_GROUPS: Map<string, Dsm5Variant[]> = (() => {
+  const map = new Map<string, Dsm5Variant[]>();
+  for (const entry of DSM5_CODES) {
+    const sepIndex = entry.name.indexOf(' — ');
+    const base = sepIndex === -1 ? entry.name : entry.name.slice(0, sepIndex);
+    const label = sepIndex === -1 ? entry.name : entry.name.slice(sepIndex + 3);
+    const list = map.get(base);
+    if (list) list.push({ label, code: entry.code });
+    else map.set(base, [{ label, code: entry.code }]);
+  }
+  return map;
+})();
+
+export const DSM5_BASE_NAMES: string[] = Array.from(DSM5_GROUPS.keys()).sort((a, b) => a.localeCompare(b, 'es'));
+
+export function getDsm5Variants(base: string): Dsm5Variant[] {
+  return DSM5_GROUPS.get(base) || [];
 }
 
 // Plan de Tratamiento (Sesión 3) — the real document is a table of numbered

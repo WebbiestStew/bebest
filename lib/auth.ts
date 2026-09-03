@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import { User } from '@/lib/types';
 import { findRecords, createRecord, escapeAirtableFormula } from '@/lib/airtable';
 
-const HARDCODED_ADMIN = {
+export const HARDCODED_ADMIN = {
   id: 'admin_001',
   email: 'diego@bebest.com',
   nombre: 'Diego',

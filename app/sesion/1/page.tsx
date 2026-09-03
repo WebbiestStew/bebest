@@ -6,6 +6,7 @@ import { Navigation } from '@/components/Navigation';
 import { Toast } from '@/components/Toast';
 import { Button, BackButton } from '@/components/Button';
 import { Input, Select, Textarea, Checkbox } from '@/components/FormInputs';
+import { FormPrintPreview, PreviewSection, PreviewField } from '@/components/FormPrintPreview';
 import { useAuth } from '@/lib/useAuth';
 import { Patient } from '@/lib/types';
 
@@ -25,19 +26,23 @@ export default function Sesion1Page() {
     historia_clinica: '',
   });
   const [patientFull, setPatientFull] = useState<Patient | null>(null);
+  const [citas, setCitas] = useState<any[]>([]);
+  const [todaysCita, setTodaysCita] = useState<any>(null);
 
   useEffect(() => {
-    const fetchPatients = async () => {
+    const fetchData = async () => {
       try {
-        const res = await fetch('/api/patients');
-        const data = await res.json();
-        setPatients(data.patients || []);
+        const [patientsRes, citasRes] = await Promise.all([fetch('/api/patients'), fetch('/api/citas')]);
+        const patientsData = await patientsRes.json();
+        const citasData = await citasRes.json();
+        setPatients(patientsData.patients || []);
+        setCitas(citasData.citas || []);
       } catch (error) {
-        console.error('Error fetching patients:', error);
+        console.error('Error fetching data:', error);
       }
     };
 
-    if (user) fetchPatients();
+    if (user) fetchData();
   }, [user]);
 
   if (isLoading) return null;
@@ -56,6 +61,24 @@ export default function Sesion1Page() {
     setFormData({ ...formData, paciente: patientId });
     const p = patients.find(pat => pat.id === patientId);
     setPatientFull(p || null);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const match = citas.find(
+      (c) => (c.paciente || [])[0] === patientId && (c.fecha || '').slice(0, 10) === today
+    );
+    setTodaysCita(match || null);
+  };
+
+  // Auto-linked to today's cita (see handlePatientChange) — closing the loop
+  // between the scheduled appointment and the session actually done.
+  const markCitaCompleted = async () => {
+    if (todaysCita && todaysCita.estado !== 'Completada' && todaysCita.estado !== 'Cancelada') {
+      await fetch(`/api/citas/${todaysCita.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado: 'Completada' }),
+      });
+    }
   };
 
   const handleContinue = async (e: React.FormEvent) => {
@@ -76,6 +99,7 @@ export default function Sesion1Page() {
       });
 
       if (res.ok) {
+        await markCitaCompleted();
         window.dispatchEvent(
           new CustomEvent('showToast', {
             detail: { message: 'Guardado correctamente.', isError: false },
@@ -115,6 +139,7 @@ export default function Sesion1Page() {
           expediente_completo: false,
         }),
       });
+      await markCitaCompleted();
 
       // Create alert
       await fetch('/api/alerts', {
@@ -148,7 +173,9 @@ export default function Sesion1Page() {
     <div className="flex flex-col md:flex-row h-screen bg-bg">
       <Navigation user={user} />
 
-      <main className="flex-1 overflow-auto p-4 sm:p-8 lg:p-12 max-w-2xl">
+      <main className="flex-1 overflow-auto p-4 sm:p-8 lg:p-12">
+        <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-8 lg:items-start max-w-6xl">
+        <div className="max-w-2xl print:hidden">
         <BackButton onClick={() => router.push('/')} />
 
         <div className="mb-8 animate-fade-in-up">
@@ -193,6 +220,11 @@ export default function Sesion1Page() {
             error={errors.paciente}
             required
           />
+          {todaysCita && (
+            <div className="text-xs text-sage-deep bg-sage-pale/40 rounded-lg px-3 py-2">
+              📅 Vinculado a la cita de hoy a las {todaysCita.hora} — se marcará como completada al guardar.
+            </div>
+          )}
 
           <Textarea
             label="Historia Clínica"
@@ -221,6 +253,18 @@ export default function Sesion1Page() {
             </Button>
           </div>
         </form>
+        </div>
+
+        <FormPrintPreview title="Sesión 1 · Entrevista" subtitle="Historia clínica del paciente">
+          <PreviewSection title="Paciente">
+            <PreviewField label="Nombre" value={patientFull?.paciente} full />
+            {todaysCita && <PreviewField label="Cita de hoy" value={todaysCita.hora} />}
+          </PreviewSection>
+          <PreviewSection title="Historia clínica">
+            <PreviewField label="Notas" value={formData.historia_clinica} full />
+          </PreviewSection>
+        </FormPrintPreview>
+        </div>
       </main>
 
       <Toast />

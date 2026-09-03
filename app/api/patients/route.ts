@@ -60,6 +60,7 @@ export async function POST(request: NextRequest) {
       paciente: body.paciente,
       telefono: body.telefono,
       terapeuta,
+      ...(body.coterapeuta ? { coterapeuta: body.coterapeuta } : {}),
       fecha_ingreso: body.fecha_ingreso,
       motivo_consulta: body.motivo_consulta,
       estatus_en_registro: body.estatus_en_registro || 'ACTIVO',
@@ -77,7 +78,8 @@ export async function POST(request: NextRequest) {
       ...(body.como_se_entero ? { como_se_entero: body.como_se_entero } : {}),
       // Domicilio
       ...(body.calle ? { calle: body.calle } : {}),
-      ...(body.numero_ext_int ? { numero_ext_int: body.numero_ext_int } : {}),
+      ...(body.numero_exterior ? { numero_exterior: body.numero_exterior } : {}),
+      ...(body.numero_interior ? { numero_interior: body.numero_interior } : {}),
       ...(body.colonia ? { colonia: body.colonia } : {}),
       ...(body.municipio ? { municipio: body.municipio } : {}),
       ...(body.estado_direccion ? { estado_direccion: body.estado_direccion } : {}),

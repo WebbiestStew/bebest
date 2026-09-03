@@ -6,9 +6,10 @@ import { Navigation } from '@/components/Navigation';
 import { Toast } from '@/components/Toast';
 import { Button, BackButton } from '@/components/Button';
 import { Input, Select, Textarea, Checkbox } from '@/components/FormInputs';
+import { FormPrintPreview, PreviewSection, PreviewField } from '@/components/FormPrintPreview';
 import { useAuth } from '@/lib/useAuth';
 import { Patient } from '@/lib/types';
-import { serializeBateriaPruebas } from '@/lib/utils';
+import { serializeBateriaPruebas, fileToBase64 } from '@/lib/utils';
 
 // The standard battery applied at CPCCM/bebest, per the "VI. Pruebas
 // aplicadas y resultados" section of the real Informe de Resultados —
@@ -42,23 +43,29 @@ export default function Sesion2Page() {
   });
   const [pruebas, setPruebas] = useState<string[]>([]);
   const [patientFull, setPatientFull] = useState<Patient | null>(null);
+  const [citas, setCitas] = useState<any[]>([]);
+  const [todaysCita, setTodaysCita] = useState<any>(null);
+  const [resultFiles, setResultFiles] = useState<File[]>([]);
+  const [isUploadingResults, setIsUploadingResults] = useState(false);
 
   const togglePrueba = (value: string) => {
     setPruebas((prev) => (prev.includes(value) ? prev.filter((p) => p !== value) : [...prev, value]));
   };
 
   useEffect(() => {
-    const fetchPatients = async () => {
+    const fetchData = async () => {
       try {
-        const res = await fetch('/api/patients');
-        const data = await res.json();
-        setPatients(data.patients || []);
+        const [patientsRes, citasRes] = await Promise.all([fetch('/api/patients'), fetch('/api/citas')]);
+        const patientsData = await patientsRes.json();
+        const citasData = await citasRes.json();
+        setPatients(patientsData.patients || []);
+        setCitas(citasData.citas || []);
       } catch (error) {
-        console.error('Error fetching patients:', error);
+        console.error('Error fetching data:', error);
       }
     };
 
-    if (user) fetchPatients();
+    if (user) fetchData();
   }, [user]);
 
   if (isLoading) return null;
@@ -88,6 +95,50 @@ export default function Sesion2Page() {
     setFormData({ ...formData, paciente: patientId });
     const p = patients.find(pat => pat.id === patientId);
     setPatientFull(p || null);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const match = citas.find(
+      (c) => (c.paciente || [])[0] === patientId && (c.fecha || '').slice(0, 10) === today
+    );
+    setTodaysCita(match || null);
+  };
+
+  // Optional graph/result images or PDFs (e.g. the SCL-90-R chart) — goes into
+  // the same general documentos bucket as INE/contrato/informe, since unlike
+  // plan_no_suicidio/consentimiento this doesn't gate anything.
+  const uploadResultFiles = async (patientId: string) => {
+    if (resultFiles.length === 0) return;
+    setIsUploadingResults(true);
+    try {
+      for (const file of resultFiles) {
+        const base64 = await fileToBase64(file);
+        await fetch(`/api/patients/${patientId}/documentos`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: file.name, contentType: file.type || 'application/octet-stream', base64 }),
+        });
+      }
+    } catch {
+      window.dispatchEvent(
+        new CustomEvent('showToast', {
+          detail: { message: 'Se guardó la sesión, pero algún archivo de resultados no se pudo subir.', isError: true },
+        })
+      );
+    } finally {
+      setIsUploadingResults(false);
+    }
+  };
+
+  // Auto-linked to today's cita (see handlePatientChange) — closing the loop
+  // between the scheduled appointment and the session actually done.
+  const markCitaCompleted = async () => {
+    if (todaysCita && todaysCita.estado !== 'Completada' && todaysCita.estado !== 'Cancelada') {
+      await fetch(`/api/citas/${todaysCita.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado: 'Completada' }),
+      });
+    }
   };
 
   const handleContinue = async (e: React.FormEvent) => {
@@ -106,6 +157,8 @@ export default function Sesion2Page() {
           expediente_completo: true,
         }),
       });
+      await uploadResultFiles(formData.paciente);
+      await markCitaCompleted();
 
       window.dispatchEvent(
         new CustomEvent('showToast', {
@@ -147,6 +200,8 @@ export default function Sesion2Page() {
           expediente_completo: false,
         }),
       });
+      await uploadResultFiles(formData.paciente);
+      await markCitaCompleted();
 
       await fetch('/api/alerts', {
         method: 'POST',
@@ -179,7 +234,9 @@ export default function Sesion2Page() {
     <div className="flex flex-col md:flex-row h-screen bg-bg">
       <Navigation user={user} />
 
-      <main className="flex-1 overflow-auto p-4 sm:p-8 lg:p-12 max-w-2xl">
+      <main className="flex-1 overflow-auto p-4 sm:p-8 lg:p-12">
+        <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-8 lg:items-start max-w-6xl">
+        <div className="max-w-2xl print:hidden">
         <BackButton onClick={() => router.push('/sesion/1')} />
 
         <div className="mb-8 animate-fade-in-up">
@@ -224,6 +281,11 @@ export default function Sesion2Page() {
             error={errors.paciente}
             required
           />
+          {todaysCita && (
+            <div className="-mt-3 text-xs text-sage-deep bg-sage-pale/40 rounded-lg px-3 py-2">
+              📅 Vinculado a la cita de hoy a las {todaysCita.hora} — se marcará como completada al guardar.
+            </div>
+          )}
 
           <div>
             <label className="text-sm font-medium text-ink-soft mb-2 block">
@@ -259,6 +321,42 @@ export default function Sesion2Page() {
             required
           />
 
+          <div>
+            <label className="text-sm font-medium text-ink-soft mb-2 block">
+              Gráficas o resultados (opcional)
+              <span className="font-normal text-xs text-ink-soft ml-2">ej. gráfica del SCL-90-R</span>
+            </label>
+            <label className="flex items-center justify-center gap-2 px-4 py-3 border border-dashed border-line rounded-lg text-sm text-ink-soft cursor-pointer transition-colors duration-150 hover:bg-sage-pale/30 hover:border-sage">
+              {resultFiles.length > 0
+                ? `📄 ${resultFiles.length} archivo(s) seleccionado(s) — elegir más`
+                : '📎 Subir gráficas o resultados (PDF o foto)'}
+              <input
+                type="file"
+                accept="application/pdf,image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => setResultFiles((prev) => [...prev, ...Array.from(e.target.files || [])])}
+              />
+            </label>
+            {resultFiles.length > 0 && (
+              <ul className="mt-2 space-y-1">
+                {resultFiles.map((f, i) => (
+                  <li key={i} className="flex items-center justify-between text-xs text-ink-soft">
+                    <span className="truncate">{f.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => setResultFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                      className="text-red hover:underline ml-2 shrink-0"
+                    >
+                      Quitar
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {isUploadingResults && <div className="text-xs text-ink-soft mt-1">Subiendo archivos…</div>}
+          </div>
+
           <div className="flex items-center gap-4 p-6 -m-8 border-t border-line bg-gray-50">
             <Button
               variant="primary"
@@ -277,6 +375,35 @@ export default function Sesion2Page() {
             </Button>
           </div>
         </form>
+        </div>
+
+        <FormPrintPreview title="Sesión 2 · Pruebas" subtitle="Batería de pruebas aplicadas">
+          <PreviewSection title="Paciente">
+            <PreviewField label="Nombre" value={patientFull?.paciente} full />
+            {todaysCita && <PreviewField label="Cita de hoy" value={todaysCita.hora} />}
+          </PreviewSection>
+          <PreviewSection title="Pruebas aplicadas">
+            <PreviewField
+              label="Batería"
+              value={
+                pruebas.length
+                  ? pruebas
+                      .filter((p) => p !== 'Otra')
+                      .concat(pruebas.includes('Otra') ? [`Otra: ${formData.pruebasOtro}`] : [])
+                      .join(', ')
+                  : undefined
+              }
+              full
+            />
+            <PreviewField label="Observaciones" value={formData.observaciones} full />
+            <PreviewField
+              label="Archivos de resultados"
+              value={resultFiles.length ? resultFiles.map((f) => f.name).join(', ') : undefined}
+              full
+            />
+          </PreviewSection>
+        </FormPrintPreview>
+        </div>
       </main>
 
       <Toast />

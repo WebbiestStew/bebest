@@ -61,6 +61,9 @@ export default function AgendaPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [completingCita, setCompletingCita] = useState<any>(null);
   const [sessionNote, setSessionNote] = useState('');
+  const [feedUrls, setFeedUrls] = useState<{ url: string; webcalUrl: string } | null>(null);
+  const [isLoadingFeed, setIsLoadingFeed] = useState(false);
+  const [copiedFeedLink, setCopiedFeedLink] = useState(false);
 
   const isAdmin = hasAdminAccess(user?.rol);
 
@@ -204,6 +207,31 @@ export default function AgendaPage() {
     }
   };
 
+  const handleShowFeed = async () => {
+    setIsLoadingFeed(true);
+    setCopiedFeedLink(false);
+    try {
+      const res = await fetch('/api/agenda-feed');
+      const data = await res.json();
+      if (res.ok) setFeedUrls(data);
+    } catch (error) {
+      console.error('Error fetching feed link:', error);
+    } finally {
+      setIsLoadingFeed(false);
+    }
+  };
+
+  const handleCopyFeedLink = async () => {
+    if (!feedUrls) return;
+    try {
+      await navigator.clipboard.writeText(feedUrls.webcalUrl);
+      setCopiedFeedLink(true);
+      setTimeout(() => setCopiedFeedLink(false), 2000);
+    } catch (error) {
+      console.error('Error copying link:', error);
+    }
+  };
+
   if (isLoading) return null;
   if (!user) return null;
 
@@ -224,9 +252,14 @@ export default function AgendaPage() {
             <h1 className="font-serif text-4xl font-medium mb-2">Agenda</h1>
             <p className="text-ink-soft text-base">Quién ves esta semana, día por día.</p>
           </div>
-          <Button variant="primary" onClick={() => setShowForm((s) => !s)}>
-            {showForm ? 'Cancelar' : '+ Nueva cita'}
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button variant="secondary" onClick={handleShowFeed} isLoading={isLoadingFeed} disabled={isLoadingFeed}>
+              📱 Sincronizar con mi teléfono
+            </Button>
+            <Button variant="primary" onClick={() => setShowForm((s) => !s)}>
+              {showForm ? 'Cancelar' : '+ Nueva cita'}
+            </Button>
+          </div>
         </div>
 
         {showForm && (
@@ -444,6 +477,43 @@ export default function AgendaPage() {
               </Button>
               <Button variant="secondary" onClick={() => setCompletingCita(null)}>
                 Cancelar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {feedUrls && (
+        <div
+          className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 animate-fade-in"
+          onClick={() => setFeedUrls(null)}
+        >
+          <div
+            className="bg-panel rounded-2xl p-6 sm:p-8 max-w-md w-full animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-xs font-mono text-sage-deep uppercase tracking-widest mb-2">Mi calendario</div>
+            <h2 className="font-serif text-2xl font-medium mb-2">Sincronizar con tu teléfono</h2>
+            <p className="text-sm text-ink-soft mb-4">
+              Copia este enlace y agrégalo como calendario suscrito (no descargado) en tu teléfono. A diferencia del
+              📅 de cada cita, esto se actualiza solo cuando cambies algo en la Agenda — no hay que volver a
+              descargar nada.
+            </p>
+            <div className="bg-gray-50 border border-line rounded-lg p-3 text-xs font-mono text-ink-soft break-all mb-3">
+              {feedUrls.webcalUrl}
+            </div>
+            <p className="text-xs text-ink-soft mb-5">
+              <strong>iPhone:</strong> Ajustes → Calendario → Cuentas → Añadir cuenta → Otra → Añadir calendario con
+              suscripción, y pega el enlace ahí.{' '}
+              <strong>Android/Google Calendar:</strong> en calendar.google.com, "Otros calendarios" → "Desde URL", y
+              pega el enlace.
+            </p>
+            <div className="flex items-center gap-3">
+              <Button variant="primary" onClick={handleCopyFeedLink}>
+                {copiedFeedLink ? '✓ Copiado' : 'Copiar enlace'}
+              </Button>
+              <Button variant="secondary" onClick={() => setFeedUrls(null)}>
+                Cerrar
               </Button>
             </div>
           </div>

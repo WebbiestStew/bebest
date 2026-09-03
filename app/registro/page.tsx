@@ -6,6 +6,7 @@ import { Navigation } from '@/components/Navigation';
 import { Toast } from '@/components/Toast';
 import { Button, BackButton } from '@/components/Button';
 import { Input, Select, Checkbox } from '@/components/FormInputs';
+import { FormPrintPreview, PreviewSection, PreviewField } from '@/components/FormPrintPreview';
 import { useAuth } from '@/lib/useAuth';
 import { fileToBase64, serializeMotivoConsulta } from '@/lib/utils';
 
@@ -59,6 +60,21 @@ const PROBLEMAS_OPTIONS = [
 // section — matches the real form's "Ir a la pregunta 28" skip logic.
 const MUESTRA_SECCION_PROFESIONAL = ['Solicitud por parte del Psiquiatra', 'Otros'];
 
+// Age is auto-filled from DOB but stays editable (not read-only) — a manual
+// correction should still be possible if the date is ever slightly off.
+function calculateAge(dob: string): number | null {
+  if (!dob) return null;
+  const birth = new Date(`${dob}T00:00:00`);
+  if (Number.isNaN(birth.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const hasHadBirthdayThisYear =
+    today.getMonth() > birth.getMonth() ||
+    (today.getMonth() === birth.getMonth() && today.getDate() >= birth.getDate());
+  if (!hasHadBirthdayThisYear) age -= 1;
+  return age >= 0 ? age : null;
+}
+
 export default function RegistroPage() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
@@ -71,6 +87,7 @@ export default function RegistroPage() {
 
   const [formData, setFormData] = useState({
     terapeuta: '',
+    coterapeuta: '',
     fecha_cita: '',
     nombre: '',
     fecha_nacimiento: '',
@@ -82,7 +99,8 @@ export default function RegistroPage() {
     email: '',
     telefono: '',
     calle: '',
-    numero_ext_int: '',
+    numero_exterior: '',
+    numero_interior: '',
     colonia: '',
     municipio: '',
     estado_direccion: '',
@@ -147,7 +165,7 @@ export default function RegistroPage() {
     e.email = required(formData.email);
     e.telefono = required(formData.telefono);
     e.calle = required(formData.calle);
-    e.numero_ext_int = required(formData.numero_ext_int);
+    e.numero_exterior = required(formData.numero_exterior);
     e.colonia = required(formData.colonia);
     e.municipio = required(formData.municipio);
     e.estado_direccion = required(formData.estado_direccion);
@@ -215,6 +233,7 @@ export default function RegistroPage() {
           paciente: formData.nombre.trim(),
           telefono: formData.telefono.trim(),
           terapeuta: formData.terapeuta,
+          ...(formData.coterapeuta ? { coterapeuta: formData.coterapeuta } : {}),
           fecha_ingreso: formData.fecha_cita,
           motivo_consulta: serializeMotivoConsulta(problemasFinal),
           edad: parseInt(formData.edad, 10),
@@ -224,7 +243,8 @@ export default function RegistroPage() {
           ocupacion: formData.ocupacion.trim(),
           email: formData.email.trim(),
           calle: formData.calle.trim(),
-          numero_ext_int: formData.numero_ext_int.trim(),
+          numero_exterior: formData.numero_exterior.trim(),
+          numero_interior: formData.numero_interior.trim(),
           colonia: formData.colonia.trim(),
           municipio: formData.municipio.trim(),
           estado_direccion: formData.estado_direccion.trim(),
@@ -304,7 +324,9 @@ export default function RegistroPage() {
     <div className="flex flex-col md:flex-row h-screen bg-bg">
       <Navigation user={user} />
 
-      <main className="flex-1 overflow-auto p-4 sm:p-8 lg:p-12 max-w-2xl">
+      <main className="flex-1 overflow-auto p-4 sm:p-8 lg:p-12">
+        <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-8 lg:items-start max-w-6xl">
+        <div className="max-w-2xl print:hidden">
         <BackButton onClick={() => router.push('/')} />
 
         <div className="mb-8 animate-fade-in-up">
@@ -329,15 +351,25 @@ export default function RegistroPage() {
               error={errors.terapeuta}
               required
             />
-            <Input
-              label="Fecha de registro"
-              type="date"
-              value={formData.fecha_cita}
-              onChange={(e) => setFormData({ ...formData, fecha_cita: e.target.value })}
-              error={errors.fecha_cita}
-              required
+            <Select
+              label="Coterapeuta (opcional)"
+              placeholder="Ninguno"
+              options={therapists
+                .filter((t) => t !== formData.terapeuta)
+                .map((t) => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) }))}
+              value={formData.coterapeuta}
+              onChange={(e) => setFormData({ ...formData, coterapeuta: e.target.value })}
             />
           </div>
+
+          <Input
+            label="Fecha de registro"
+            type="date"
+            value={formData.fecha_cita}
+            onChange={(e) => setFormData({ ...formData, fecha_cita: e.target.value })}
+            error={errors.fecha_cita}
+            required
+          />
 
           {/* Datos del cliente */}
           <div className="border-t border-line pt-6 space-y-6">
@@ -357,7 +389,15 @@ export default function RegistroPage() {
                 label="Fecha de nacimiento"
                 type="date"
                 value={formData.fecha_nacimiento}
-                onChange={(e) => setFormData({ ...formData, fecha_nacimiento: e.target.value })}
+                onChange={(e) => {
+                  const fecha_nacimiento = e.target.value;
+                  const computedAge = calculateAge(fecha_nacimiento);
+                  setFormData((f) => ({
+                    ...f,
+                    fecha_nacimiento,
+                    edad: computedAge !== null ? String(computedAge) : f.edad,
+                  }));
+                }}
                 error={errors.fecha_nacimiento}
                 required
               />
@@ -365,7 +405,7 @@ export default function RegistroPage() {
                 label="Edad"
                 type="number"
                 min={0}
-                placeholder="Edad"
+                placeholder="Se llena sola con la fecha de nacimiento"
                 value={formData.edad}
                 onChange={(e) => setFormData({ ...formData, edad: e.target.value })}
                 error={errors.edad}
@@ -445,13 +485,19 @@ export default function RegistroPage() {
               required
             />
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
               <Input
-                label="Número exterior/interior"
-                value={formData.numero_ext_int}
-                onChange={(e) => setFormData({ ...formData, numero_ext_int: e.target.value })}
-                error={errors.numero_ext_int}
+                label="Número exterior"
+                value={formData.numero_exterior}
+                onChange={(e) => setFormData({ ...formData, numero_exterior: e.target.value })}
+                error={errors.numero_exterior}
                 required
+              />
+              <Input
+                label="Número interior"
+                placeholder="Opcional"
+                value={formData.numero_interior}
+                onChange={(e) => setFormData({ ...formData, numero_interior: e.target.value })}
               />
               <Input
                 label="Colonia"
@@ -760,6 +806,88 @@ export default function RegistroPage() {
             <span className="text-xs text-ink-soft ml-auto">Se guarda en la base de datos</span>
           </div>
         </form>
+        </div>
+
+        <FormPrintPreview title="Ficha de Registro" subtitle="Registro inicial de pacientes adultos">
+          <PreviewSection title="Cita">
+            <PreviewField label="Terapeuta" value={formData.terapeuta} />
+            <PreviewField label="Coterapeuta" value={formData.coterapeuta} />
+            <PreviewField label="Fecha de registro" value={formData.fecha_cita} />
+          </PreviewSection>
+          <PreviewSection title="Datos del cliente">
+            <PreviewField label="Nombre" value={formData.nombre} full />
+            <PreviewField label="Fecha de nacimiento" value={formData.fecha_nacimiento} />
+            <PreviewField label="Edad" value={formData.edad} />
+            <PreviewField label="Sexo" value={formData.sexo} />
+            <PreviewField
+              label="Estado civil"
+              value={formData.estado_civil === 'Otros' ? formData.estado_civil_otro : formData.estado_civil}
+            />
+            <PreviewField label="Ocupación" value={formData.ocupacion} full />
+            <PreviewField label="Correo" value={formData.email} />
+            <PreviewField label="Teléfono" value={formData.telefono} />
+          </PreviewSection>
+          <PreviewSection title="Domicilio">
+            <PreviewField label="Calle" value={formData.calle} full />
+            <PreviewField label="Número exterior" value={formData.numero_exterior} />
+            <PreviewField label="Número interior" value={formData.numero_interior} />
+            <PreviewField label="Colonia" value={formData.colonia} />
+            <PreviewField label="Municipio" value={formData.municipio} />
+            <PreviewField label="Estado" value={formData.estado_direccion} />
+            <PreviewField label="País" value={formData.pais} />
+          </PreviewSection>
+          <PreviewSection title="Contacto de emergencia">
+            <PreviewField label="Nombre" value={formData.contacto_emergencia_nombre} full />
+            <PreviewField label="Correo" value={formData.contacto_emergencia_email} />
+            <PreviewField label="Teléfono" value={formData.contacto_emergencia_telefono} />
+            <PreviewField
+              label="Relación"
+              value={
+                formData.contacto_emergencia_relacion === 'Otros'
+                  ? formData.contacto_emergencia_relacion_otro
+                  : formData.contacto_emergencia_relacion
+              }
+            />
+          </PreviewSection>
+          <PreviewSection title="Motivo de consulta">
+            <PreviewField
+              label="Problemas"
+              value={
+                problemas.length
+                  ? problemas.filter((p) => p !== 'Otros').concat(problemas.includes('Otros') ? [formData.problemasOtro] : []).join(', ')
+                  : undefined
+              }
+              full
+            />
+            <PreviewField
+              label="Motivo de la solicitud"
+              value={formData.motivo_solicitud === 'Otros' ? formData.motivo_solicitud_otro : formData.motivo_solicitud}
+              full
+            />
+            <PreviewField
+              label="Cómo se enteró"
+              value={
+                formData.entero === 'Recomendación de un familiar/amigo' || formData.entero === 'Otro'
+                  ? `${formData.entero}: ${formData.enteroDetalle}`
+                  : formData.entero
+              }
+              full
+            />
+          </PreviewSection>
+          {showProfesional && (
+            <PreviewSection title="Profesional de la salud">
+              <PreviewField label="Nombre" value={formData.profesional_nombre} full />
+              <PreviewField
+                label="Tipo"
+                value={formData.profesional_tipo === 'Otros' ? formData.profesional_tipo_otro : formData.profesional_tipo}
+              />
+              <PreviewField label="Teléfono" value={formData.profesional_telefono} />
+              <PreviewField label="Correo" value={formData.profesional_email} />
+              <PreviewField label="Autoriza contacto" value={formData.profesional_autoriza} />
+            </PreviewSection>
+          )}
+        </FormPrintPreview>
+        </div>
       </main>
 
       <Toast />

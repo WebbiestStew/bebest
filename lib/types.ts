@@ -49,7 +49,11 @@ export interface Patient {
   como_se_entero?: string;
   // Domicilio
   calle?: string;
+  // numero_ext_int is the legacy combined field (kept, unused going forward —
+  // same "don't delete old columns" pattern as other superseded fields here).
   numero_ext_int?: string;
+  numero_exterior?: string;
+  numero_interior?: string;
   colonia?: string;
   municipio?: string;
   estado_direccion?: string;
@@ -88,12 +92,25 @@ export interface Patient {
   // table of numbered objetivos each paired with técnicas, not a paragraph.
   // Stored as a string because Airtable has no array-of-objects field type.
   plan_tratamiento?: string;
+  // Each requires its own uploaded supporting document before it can be
+  // checked (see plan_no_suicidio_doc/consentimiento_informado_doc below).
   plan_no_suicidio?: boolean;
   consentimiento_informado?: boolean;
+  plan_no_suicidio_doc?: { id: string; url: string; filename: string; size: number; type: string }[];
+  consentimiento_informado_doc?: { id: string; url: string; filename: string; size: number; type: string }[];
   referido_psiquiatria?: boolean;
+  // Psiquiatra referral details (Sesión 3) — shown when referido_psiquiatria
+  // is checked. psiquiatra_datos_pendientes means "referral discussed, no
+  // contact info yet" — checking it fires an admin alert to follow up.
+  psiquiatra_nombre?: string;
+  psiquiatra_contacto?: string;
+  psiquiatra_datos_pendientes?: boolean;
   // Signed informe de resultados (Sesión 3) — the clinic works off the
-  // physical signed document (uploaded via `documentos`); these just track
-  // who has signed it, one checkbox per signer.
+  // physical signed document, uploaded via `documentos`. These three used to
+  // be per-signer checkboxes in the UI (Round 1 of the form-updates thread);
+  // Diego asked to remove them, so they're unused now — kept in the type
+  // (and the Airtable columns) rather than deleted, same as other
+  // superseded fields in this file.
   informe_firmado_terapeuta?: boolean;
   informe_firmado_supervisor?: boolean;
   informe_firmado_paciente?: boolean;
