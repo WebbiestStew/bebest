@@ -33,7 +33,17 @@ export async function GET(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const doc = (patientAny.documentos || []).find((d: any) => d.id === params.attachmentId);
+    // Looks across every attachment field this patient has, not just the
+    // general `documentos` bucket — plan_no_suicidio_doc and
+    // consentimiento_informado_doc are separate fields (see
+    // app/api/patients/[id]/documentos/route.ts's ALLOWED_FIELDS) so their
+    // "already uploaded" state survives a reselect, but that meant this
+    // route could never actually serve them back once uploaded.
+    const doc = [
+      ...(patientAny.documentos || []),
+      ...(patientAny.plan_no_suicidio_doc || []),
+      ...(patientAny.consentimiento_informado_doc || []),
+    ].find((d: any) => d.id === params.attachmentId);
     if (!doc) {
       return NextResponse.json({ error: 'Documento no encontrado' }, { status: 404 });
     }

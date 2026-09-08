@@ -43,6 +43,7 @@ export default function SugerenciasPage() {
   const [sugerencias, setSugerencias] = useState<any[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [justSent, setJustSent] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'Todas' | 'Nueva' | 'Revisada' | 'Hecha'>('Todas');
 
   const fetchSugerencias = async () => {
     try {
@@ -114,6 +115,14 @@ export default function SugerenciasPage() {
 
   const isAdmin = hasAdminAccess(user.rol);
   const pending = sugerencias.filter((s) => s.estado !== 'Hecha').length;
+  const filteredSugerencias =
+    statusFilter === 'Todas' ? sugerencias : sugerencias.filter((s) => s.estado === statusFilter);
+  const filterOptions: { value: typeof statusFilter; label: string }[] = [
+    { value: 'Todas', label: 'Todas' },
+    { value: 'Nueva', label: 'Nueva' },
+    { value: 'Revisada', label: 'Revisada' },
+    { value: 'Hecha', label: 'Hecha' },
+  ];
 
   return (
     <div className="flex flex-col md:flex-row h-screen bg-bg">
@@ -167,6 +176,29 @@ export default function SugerenciasPage() {
             )}
           </div>
 
+          {!isLoadingData && sugerencias.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-4">
+              {filterOptions.map((opt) => {
+                const count =
+                  opt.value === 'Todas' ? sugerencias.length : sugerencias.filter((s) => s.estado === opt.value).length;
+                const active = statusFilter === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    onClick={() => setStatusFilter(opt.value)}
+                    className={`text-xs font-mono px-3 py-1.5 rounded-full border transition-colors duration-150 ${
+                      active
+                        ? 'bg-sage-deep text-white border-sage-deep'
+                        : 'bg-panel text-ink-soft border-line hover:border-sage'
+                    }`}
+                  >
+                    {opt.label} · {count}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {isLoadingData ? (
             <div className="space-y-3">
               <Skeleton className="h-20 rounded-lg" />
@@ -176,9 +208,13 @@ export default function SugerenciasPage() {
             <div className="bg-panel border-2 border-dashed border-line rounded-lg p-8 text-center text-ink-soft">
               Aún no hay sugerencias. ¡Sé el primero!
             </div>
+          ) : filteredSugerencias.length === 0 ? (
+            <div className="bg-panel border-2 border-dashed border-line rounded-lg p-8 text-center text-ink-soft">
+              Sin sugerencias con este estado.
+            </div>
           ) : (
             <div className="space-y-3">
-              {sugerencias.map((s, i) => (
+              {filteredSugerencias.map((s, i) => (
                 <div
                   key={s.id}
                   className={`bg-panel border border-line rounded-lg p-4 flex gap-3 animate-fade-in-up transition-opacity duration-200 ${

@@ -61,6 +61,10 @@ export default function AgendaPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [completingCita, setCompletingCita] = useState<any>(null);
   const [sessionNote, setSessionNote] = useState('');
+  const [reschedulingCita, setReschedulingCita] = useState<any>(null);
+  const [rescheduleFecha, setRescheduleFecha] = useState('');
+  const [rescheduleHora, setRescheduleHora] = useState('');
+  const [isRescheduling, setIsRescheduling] = useState(false);
   const [feedUrls, setFeedUrls] = useState<{ url: string; webcalUrl: string } | null>(null);
   const [isLoadingFeed, setIsLoadingFeed] = useState(false);
   const [copiedFeedLink, setCopiedFeedLink] = useState(false);
@@ -113,6 +117,23 @@ export default function AgendaPage() {
   }, [citas, weekDays]);
 
   const weekLabel = `${weekDays[0].toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })} – ${weekDays[6].toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+
+  // Warns about (doesn't block) the same therapist already having another
+  // cita at that exact date+hour — catches accidental double-booking without
+  // stopping a deliberate one (e.g. a correction, or two therapists sharing
+  // a slot on purpose).
+  const conflictingCita = useMemo(() => {
+    if (!formData.terapeuta || !formData.fecha || !formData.hora) return null;
+    return (
+      citas.find(
+        (c) =>
+          c.terapeuta === formData.terapeuta &&
+          (c.fecha || '').slice(0, 10) === formData.fecha &&
+          c.hora === formData.hora &&
+          c.estado !== 'Cancelada'
+      ) || null
+    );
+  }, [citas, formData.terapeuta, formData.fecha, formData.hora]);
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
@@ -204,6 +225,49 @@ export default function AgendaPage() {
       }
     } catch (error) {
       console.error('Error deleting cita:', error);
+    }
+  };
+
+  const openReschedule = (cita: any) => {
+    setReschedulingCita(cita);
+    setRescheduleFecha((cita.fecha || '').slice(0, 10));
+    setRescheduleHora(cita.hora || '');
+  };
+
+  // Same non-blocking "someone's already got that slot" check the new-cita
+  // form does above, just excluding the cita being moved from the comparison
+  // (otherwise it would always conflict with itself).
+  const rescheduleConflict =
+    reschedulingCita &&
+    citas.find(
+      (c) =>
+        c.id !== reschedulingCita.id &&
+        c.terapeuta === reschedulingCita.terapeuta &&
+        (c.fecha || '').slice(0, 10) === rescheduleFecha &&
+        c.hora === rescheduleHora &&
+        c.estado !== 'Cancelada'
+    );
+
+  const confirmReschedule = async () => {
+    if (!reschedulingCita || !rescheduleFecha || !rescheduleHora) return;
+    setIsRescheduling(true);
+    try {
+      const res = await fetch(`/api/citas/${reschedulingCita.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fecha: rescheduleFecha, hora: rescheduleHora }),
+      });
+      if (res.ok) {
+        window.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Cita reagendada.', isError: false } }));
+        setReschedulingCita(null);
+        fetchAll();
+      } else {
+        window.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Error al reagendar', isError: true } }));
+      }
+    } catch (error) {
+      window.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Error al reagendar', isError: true } }));
+    } finally {
+      setIsRescheduling(false);
     }
   };
 
@@ -341,6 +405,13 @@ export default function AgendaPage() {
               )}
             </div>
 
+            {conflictingCita && (
+              <div className="text-sm text-clay bg-clay-pale/50 border border-clay/30 rounded-lg px-3 py-2">
+                ⚠️ {formData.terapeuta} ya tiene una cita a esta hora con {conflictingCita.paciente_nombre} (
+                {conflictingCita.estado}). Puedes agendar de todos modos si es intencional.
+              </div>
+            )}
+
             <Button type="submit" variant="primary" isLoading={isSubmitting} disabled={isSubmitting}>
               {formData.repetir ? `Agendar ${formData.repeatWeeks} citas` : 'Agendar cita'}
             </Button>
@@ -420,6 +491,14 @@ export default function AgendaPage() {
                             >
                               📅
                             </a>
+                            <button
+                              onClick={() => openReschedule(c)}
+                              className="text-xs text-ink-soft hover:text-sage-deep transition-colors duration-150"
+                              aria-label="Reagendar cita"
+                              title="Reagendar"
+                            >
+                              🔁
+                            </button>
                             <select
                               value={c.estado}
                               onChange={(e) => handleStatusSelect(c, e.target.value)}
@@ -483,6 +562,54 @@ export default function AgendaPage() {
         </div>
       )}
 
+      {reschedulingCita && (
+        <div
+          className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 animate-fade-in"
+          onClick={() => setReschedulingCita(null)}
+        >
+          <div
+            className="bg-panel rounded-2xl p-6 sm:p-8 max-w-md w-full animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-xs font-mono text-sage-deep uppercase tracking-widest mb-2">Reagendar</div>
+            <h2 className="font-serif text-2xl font-medium mb-5">{reschedulingCita.paciente_nombre}</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Input
+                label="Fecha"
+                type="date"
+                value={rescheduleFecha}
+                onChange={(e) => setRescheduleFecha(e.target.value)}
+              />
+              <Input
+                label="Hora"
+                type="time"
+                value={rescheduleHora}
+                onChange={(e) => setRescheduleHora(e.target.value)}
+              />
+            </div>
+            {rescheduleConflict && (
+              <div className="mt-4 text-sm text-clay bg-clay-pale/50 border border-clay/30 rounded-lg px-3 py-2">
+                ⚠️ {reschedulingCita.terapeuta} ya tiene una cita a esta hora con {rescheduleConflict.paciente_nombre} (
+                {rescheduleConflict.estado}). Puedes reagendar de todos modos si es intencional.
+              </div>
+            )}
+            <div className="flex items-center gap-3 mt-5">
+              <Button
+                variant="primary"
+                onClick={confirmReschedule}
+                isLoading={isRescheduling}
+                disabled={isRescheduling || !rescheduleFecha || !rescheduleHora}
+              >
+                Guardar
+              </Button>
+              <Button variant="secondary" onClick={() => setReschedulingCita(null)} disabled={isRescheduling}>
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {feedUrls && (
         <div
           className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 animate-fade-in"
@@ -505,8 +632,8 @@ export default function AgendaPage() {
             <p className="text-xs text-ink-soft mb-5">
               <strong>iPhone:</strong> Ajustes → Calendario → Cuentas → Añadir cuenta → Otra → Añadir calendario con
               suscripción, y pega el enlace ahí.{' '}
-              <strong>Android/Google Calendar:</strong> en calendar.google.com, "Otros calendarios" → "Desde URL", y
-              pega el enlace.
+              <strong>Android/Google Calendar:</strong> en calendar.google.com, &ldquo;Otros calendarios&rdquo; →
+              &ldquo;Desde URL&rdquo;, y pega el enlace.
             </p>
             <div className="flex items-center gap-3">
               <Button variant="primary" onClick={handleCopyFeedLink}>

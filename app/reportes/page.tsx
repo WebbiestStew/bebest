@@ -14,6 +14,13 @@ import { CATEGORICAL, MUTED_GRAY, ordinalStep } from '@/lib/chartColors';
 import { Skeleton } from '@/components/Skeleton';
 import { CountUp } from '@/components/CountUp';
 import { RawTableSection, RawTableSectionHandle } from '@/components/RawTableSection';
+import { downloadPdf, normalizeText, parseMotivoConsulta } from '@/lib/utils';
+import { PdfDocument, PdfSectionData } from '@/components/PdfDocument';
+
+const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+// JS's Date#getDay() is Sunday-first (0-6) — remap to the Monday-first order
+// the rest of this app uses (see DIAS in app/agenda/page.tsx).
+const JS_DAY_TO_INDEX = [6, 0, 1, 2, 3, 4, 5];
 
 // Every table in the base, in the same order as the tabs in Airtable itself.
 const AIRTABLE_TABLES = [
@@ -71,40 +78,28 @@ export default function ReportesPage() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
   const [patients, setPatients] = useState<any[]>([]);
+  const [citas, setCitas] = useState<any[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [year, setYear] = useState('todos');
   const [month, setMonth] = useState('todos');
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const rawTableRefs = useRef<Record<string, RawTableSectionHandle | null>>({});
 
-  const exportEverythingToPdf = async () => {
-    setIsExportingPdf(true);
-    try {
-      await Promise.all(
-        AIRTABLE_TABLES.map((table) => rawTableRefs.current[table]?.ensureLoaded('ambos'))
-      );
-      // Let entrance animations (bar charts grow on mount) settle before the
-      // print snapshot is taken, otherwise bars print at 0 height.
-      await new Promise((resolve) => setTimeout(resolve, 900));
-      window.print();
-    } finally {
-      setIsExportingPdf(false);
-    }
-  };
-
   useEffect(() => {
-    const fetchPatients = async () => {
+    const fetchData = async () => {
       try {
-        const res = await fetch('/api/patients');
-        const data = await res.json();
-        setPatients(data.patients || []);
+        const [patientsRes, citasRes] = await Promise.all([fetch('/api/patients'), fetch('/api/citas')]);
+        const patientsData = await patientsRes.json();
+        const citasData = await citasRes.json();
+        setPatients(patientsData.patients || []);
+        setCitas(citasData.citas || []);
       } catch (error) {
-        console.error('Error fetching patients:', error);
+        console.error('Error fetching reportes data:', error);
       } finally {
         setIsLoadingData(false);
       }
     };
-    if (user) fetchPatients();
+    if (user) fetchData();
   }, [user]);
 
   const availableYears = useMemo(() => {
@@ -122,6 +117,21 @@ export default function ReportesPage() {
     if (month === 'todos') return yearFiltered;
     return yearFiltered.filter((p) => (p.mes_ingreso || '').toUpperCase() === month);
   }, [yearFiltered, month]);
+
+  if (isLoading) return null;
+  if (!user) return null;
+
+  const isAdmin = hasAdminAccess(user.rol);
+  const avgAge = filtered.length
+    ? Math.round(filtered.reduce((s, p) => s + (p.edad || 0), 0) / filtered.filter((p) => p.edad).length) || 0
+    : 0;
+
+  const periodLabel =
+    month === 'todos' && year === 'todos'
+      ? 'Todo el periodo'
+      : month === 'todos'
+      ? `Año ${year}`
+      : `${titleCase(month)} ${year === 'todos' ? '' : year}`.trim();
 
   // Sexo
   const sexoRows = groupBy(filtered, 'sexo', ['MASCULINO', 'FEMENINO']);
@@ -188,20 +198,186 @@ export default function ReportesPage() {
     };
   });
 
-  if (isLoading) return null;
-  if (!user) return null;
+  // Citas filtered by the cita's OWN fecha (not the patient's anio/mes_ingreso
+  // — a session can happen well after a patient's original intake month), on
+  // the same year/month picked above. Reportes never looked at citas at all
+  // before this — every chart used to be roster/demographic data only.
+  const citasFiltered = citas.filter((c: any) => {
+    if (!c.fecha) return false;
+    const d = new Date(c.fecha);
+    if (year !== 'todos' && String(d.getUTCFullYear()) !== year) return false;
+    if (month !== 'todos' && MESES[d.getUTCMonth()] !== month) return false;
+    return true;
+  });
 
-  const isAdmin = hasAdminAccess(user.rol);
-  const avgAge = filtered.length
-    ? Math.round(filtered.reduce((s, p) => s + (p.edad || 0), 0) / filtered.filter((p) => p.edad).length) || 0
+  const sesionesCompletadas = citasFiltered.filter((c: any) => c.estado === 'Completada').length;
+  const inasistencias = citasFiltered.filter((c: any) => c.estado === 'No asistió').length;
+  const resueltas = sesionesCompletadas + inasistencias;
+  const tasaInasistencia = resueltas ? Math.round((inasistencias / resueltas) * 100) : 0;
+  const pacientesConSesion = new Set(
+    citasFiltered
+      .filter((c: any) => c.estado === 'Completada')
+      .flatMap((c: any) => c.paciente || [])
+  ).size;
+  const promedioSesionesPorPaciente = pacientesConSesion
+    ? Math.round((sesionesCompletadas / pacientesConSesion) * 10) / 10
     : 0;
 
-  const periodLabel =
-    month === 'todos' && year === 'todos'
-      ? 'Todo el periodo'
-      : month === 'todos'
-      ? `Año ${year}`
-      : `${titleCase(month)} ${year === 'todos' ? '' : year}`.trim();
+  // Citas por día de la semana (Lunes-first, matching the rest of the app)
+  const diaCounts = new Array(7).fill(0);
+  citasFiltered.forEach((c: any) => {
+    if (!c.fecha) return;
+    diaCounts[JS_DAY_TO_INDEX[new Date(c.fecha).getUTCDay()]]++;
+  });
+  const diaTotal = diaCounts.reduce((s, v) => s + v, 0);
+  const diaData: BarDatum[] = DIAS_SEMANA.map((label, i) => ({
+    label,
+    value: diaCounts[i],
+    color: CATEGORICAL[0],
+  }));
+
+  // Diagnósticos más frecuentes (Dx Principal; falls back to the legacy
+  // roster `diagnostico` column for patients that predate the Sesión 3 flow)
+  const dxCounts = new Map<string, number>();
+  filtered.forEach((p: any) => {
+    const dx = (p.dx_principal || p.diagnostico || '').trim();
+    if (dx) dxCounts.set(dx, (dxCounts.get(dx) || 0) + 1);
+  });
+  const dxSorted = Array.from(dxCounts.entries())
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value);
+  const dxTop = dxSorted.slice(0, 10);
+  const dxRest = dxSorted.slice(10).reduce((s, r) => s + r.value, 0);
+  const dxData = dxRest > 0 ? [...dxTop, { label: 'Otros', value: dxRest }] : dxTop;
+  const dxTotal = dxSorted.reduce((s, r) => s + r.value, 0);
+
+  // Motivos de consulta más frecuentes — motivo_consulta is a "select all
+  // that apply" list (see parseMotivoConsulta), so one patient can add to
+  // several bars here, unlike every other chart on this page.
+  const motivoCounts = new Map<string, number>();
+  filtered.forEach((p: any) => {
+    parseMotivoConsulta(p.motivo_consulta).forEach((m) => motivoCounts.set(m, (motivoCounts.get(m) || 0) + 1));
+  });
+  const motivoSorted = Array.from(motivoCounts.entries())
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value);
+  const motivoTop = motivoSorted.slice(0, 10);
+  const motivoRest = motivoSorted.slice(10).reduce((s, r) => s + r.value, 0);
+  const motivoData = motivoRest > 0 ? [...motivoTop, { label: 'Otros', value: motivoRest }] : motivoTop;
+  const motivoTotal = motivoSorted.reduce((s, r) => s + r.value, 0);
+
+  // Sesiones y asistencia por terapeuta (admin only, same gating as the
+  // caseload chart above) — the caseload chart only counts assigned
+  // patients; this is actual session volume and no-show rate per therapist.
+  const terapeutaSesionesMap = new Map<string, { completadas: number; noAsistio: number }>();
+  citasFiltered.forEach((c: any) => {
+    const key = c.terapeuta ? titleCase(c.terapeuta) : 'Sin asignar';
+    const entry = terapeutaSesionesMap.get(key) || { completadas: 0, noAsistio: 0 };
+    if (c.estado === 'Completada') entry.completadas++;
+    if (c.estado === 'No asistió') entry.noAsistio++;
+    terapeutaSesionesMap.set(key, entry);
+  });
+  const terapeutaSesionesSorted = Array.from(terapeutaSesionesMap.entries())
+    .map(([label, { completadas, noAsistio }]) => {
+      const resueltasTerapeuta = completadas + noAsistio;
+      return {
+        label,
+        value: completadas,
+        pct: resueltasTerapeuta ? Math.round((noAsistio / resueltasTerapeuta) * 100) : 0,
+      };
+    })
+    .sort((a, b) => b.value - a.value);
+
+  const handleExportPdf = async () => {
+    setIsExportingPdf(true);
+    try {
+      const sections: PdfSectionData[] = [
+        {
+          title: 'Resumen',
+          fields: [
+            { label: 'Pacientes en el periodo', value: filtered.length },
+            { label: 'Edad promedio', value: avgAge ? `${avgAge} años` : null },
+            { label: 'Terapeutas activos', value: terapeutaSorted.length },
+            { label: 'Sesiones completadas', value: sesionesCompletadas },
+            { label: 'Tasa de inasistencia', value: resueltas ? `${tasaInasistencia}%` : null },
+            { label: 'Promedio de sesiones por paciente', value: pacientesConSesion ? promedioSesionesPorPaciente : null },
+          ],
+        },
+        {
+          title: 'Sexo',
+          fields: sexoData.map((d) => ({ label: d.label, value: sexoTotal ? `${d.value} (${Math.round((d.value / sexoTotal) * 100)}%)` : d.value })),
+        },
+        {
+          title: 'Rango de edad',
+          fields: edadData.map((d) => ({ label: d.label, value: edadTotal ? `${d.value} (${Math.round((d.value / edadTotal) * 100)}%)` : d.value })),
+        },
+        {
+          title: 'Estado del expediente',
+          fields: estatusData.map((d) => ({ label: d.label, value: estatusTotal ? `${d.value} (${Math.round((d.value / estatusTotal) * 100)}%)` : d.value })),
+        },
+        {
+          title: 'Frecuencia de sesiones',
+          fields: frecuenciaData.map((d) => ({ label: d.label, value: frecuenciaTotal ? `${d.value} (${Math.round((d.value / frecuenciaTotal) * 100)}%)` : d.value })),
+        },
+        ...(isAdmin
+          ? [
+              {
+                title: 'Pacientes por terapeuta',
+                fields: terapeutaData.map((d) => ({ label: d.label, value: d.value })),
+              },
+            ]
+          : []),
+        {
+          title: 'Ingresos por mes',
+          fields: mesData.filter((d) => d.value > 0).map((d) => ({ label: titleCase(d.label), value: d.value })),
+        },
+        {
+          title: 'Citas por día de la semana',
+          fields: diaData.filter((d) => d.value > 0).map((d) => ({ label: d.label, value: d.value })),
+        },
+        {
+          title: 'Diagnósticos más frecuentes',
+          fields: dxData.map((d) => ({ label: d.label, value: d.value, full: true })),
+        },
+        {
+          title: 'Motivos de consulta más frecuentes',
+          fields: motivoData.map((d) => ({ label: d.label, value: d.value, full: true })),
+        },
+        ...(isAdmin
+          ? [
+              {
+                title: 'Sesiones y asistencia por terapeuta',
+                fields: terapeutaSesionesSorted.map((d) => ({
+                  label: d.label,
+                  value: `${d.value} completadas — ${d.pct}% inasistencia`,
+                  full: true,
+                })),
+              },
+            ]
+          : []),
+      ];
+
+      const slug = normalizeText(`reportes-${periodLabel}`)
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+      await downloadPdf(
+        <PdfDocument
+          title="Reportes"
+          subtitle={periodLabel}
+          sections={sections}
+          generatedNote="Consulta · Reporte generado automáticamente"
+        />,
+        slug
+      );
+    } catch (error) {
+      console.error('Error generating reportes PDF:', error);
+      window.dispatchEvent(
+        new CustomEvent('showToast', { detail: { message: 'Error al generar el PDF', isError: true } })
+      );
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
 
   return (
     <div className="flex flex-col md:flex-row h-screen bg-bg">
@@ -227,8 +403,8 @@ export default function ReportesPage() {
               🖨 Imprimir
             </Button>
             {isAdmin && (
-              <Button variant="secondary" onClick={exportEverythingToPdf} disabled={isExportingPdf}>
-                {isExportingPdf ? 'Preparando…' : '📄 Exportar todo (PDF)'}
+              <Button variant="secondary" onClick={handleExportPdf} disabled={isExportingPdf} isLoading={isExportingPdf}>
+                ⬇️ Descargar reporte (PDF)
               </Button>
             )}
           </div>
@@ -270,7 +446,7 @@ export default function ReportesPage() {
         </div>
 
         {/* Summary stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
           {[
             { label: 'Pacientes en el periodo', value: filtered.length, suffix: '' },
             { label: 'Edad promedio', value: avgAge, suffix: avgAge ? ' años' : '' },
@@ -291,6 +467,29 @@ export default function ReportesPage() {
                 </div>
               ) : (
                 <div className="font-serif text-2xl font-medium">—</div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Session/attendance stats — the first numbers on this page that
+            come from citas instead of the patient roster. */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+          {[
+            { label: 'Sesiones completadas', display: sesionesCompletadas ? String(sesionesCompletadas) : null },
+            { label: 'Tasa de inasistencia', display: resueltas ? `${tasaInasistencia}%` : null },
+            { label: 'Sesiones por paciente', display: pacientesConSesion ? String(promedioSesionesPorPaciente) : null },
+          ].map((s, i) => (
+            <div
+              key={s.label}
+              className="bg-panel border border-line rounded-lg p-4 animate-fade-in-up"
+              style={{ animationDelay: `${180 + i * 40}ms` }}
+            >
+              <div className="text-xs text-ink-soft uppercase tracking-wider mb-1">{s.label}</div>
+              {isLoadingData ? (
+                <Skeleton className="h-7 w-16" />
+              ) : (
+                <div className="font-serif text-2xl font-medium">{s.display ?? '—'}</div>
               )}
             </div>
           ))}
@@ -366,6 +565,52 @@ export default function ReportesPage() {
             >
               <VerticalBars data={mesData} axisLabelFormatter={(l) => MES_ABBR[l] || l} />
             </ChartCard>
+
+            <ChartCard
+              title="Citas por día de la semana"
+              subtitle={`${diaTotal} citas`}
+              tableRows={diaData.map((d) => ({ label: d.label, value: d.value, pct: diaTotal ? Math.round((d.value / diaTotal) * 100) : 0 }))}
+              tableHeaders={['Día', 'Citas', '%']}
+              delay={320}
+            >
+              <VerticalBars data={diaData} unit="citas" axisLabelFormatter={(l) => l.slice(0, 3)} />
+            </ChartCard>
+
+            <ChartCard
+              title="Diagnósticos más frecuentes"
+              subtitle={`${dxTotal} pacientes con Dx`}
+              tableRows={dxData.map((d) => ({ label: d.label, value: d.value, pct: dxTotal ? Math.round((d.value / dxTotal) * 100) : 0 }))}
+              tableHeaders={['Diagnóstico', 'Pacientes', '%']}
+              delay={350}
+            >
+              <RankedBars data={dxData} color={CATEGORICAL[1]} />
+            </ChartCard>
+
+            <ChartCard
+              title="Motivos de consulta más frecuentes"
+              subtitle="Un paciente puede señalar más de uno"
+              tableRows={motivoData.map((d) => ({ label: d.label, value: d.value, pct: motivoTotal ? Math.round((d.value / motivoTotal) * 100) : 0 }))}
+              tableHeaders={['Motivo', 'Menciones', '%']}
+              delay={380}
+            >
+              <RankedBars data={motivoData} color={CATEGORICAL[2]} unit="menciones" />
+            </ChartCard>
+
+            {isAdmin && (
+              <ChartCard
+                title="Sesiones y asistencia por terapeuta"
+                subtitle="% de inasistencia sobre sesiones resueltas"
+                tableRows={terapeutaSesionesSorted}
+                tableHeaders={['Terapeuta', 'Sesiones completadas', '% inasistencia']}
+                delay={410}
+              >
+                <RankedBars
+                  data={terapeutaSesionesSorted.map((d) => ({ label: d.label, value: d.value }))}
+                  color={CATEGORICAL[0]}
+                  unit="sesiones"
+                />
+              </ChartCard>
+            )}
           </div>
         )}
 

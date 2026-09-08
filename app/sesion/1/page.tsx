@@ -255,7 +255,24 @@ export default function Sesion1Page() {
         </form>
         </div>
 
-        <FormPrintPreview title="Sesión 1 · Entrevista" subtitle="Historia clínica del paciente">
+        <FormPrintPreview
+          title="Sesión 1 · Entrevista"
+          subtitle="Historia clínica del paciente"
+          filename={`sesion-1-${patientFull?.paciente || 'paciente'}`}
+          pdfSections={[
+            {
+              title: 'Paciente',
+              fields: [
+                { label: 'Nombre', value: patientFull?.paciente, full: true },
+                { label: 'Cita de hoy', value: todaysCita?.hora },
+              ],
+            },
+            {
+              title: 'Historia clínica',
+              fields: [{ label: 'Notas', value: formData.historia_clinica, full: true }],
+            },
+          ]}
+        >
           <PreviewSection title="Paciente">
             <PreviewField label="Nombre" value={patientFull?.paciente} full />
             {todaysCita && <PreviewField label="Cita de hoy" value={todaysCita.hora} />}

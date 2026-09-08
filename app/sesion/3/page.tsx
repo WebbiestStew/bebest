@@ -14,6 +14,9 @@ import {
   parsePlanTratamiento,
   serializePlanTratamiento,
   PlanObjetivo,
+  parseDxAdicionales,
+  serializeDxAdicionales,
+  DxAdicional,
   findDsm5Code,
 } from '@/lib/utils';
 import { DSM5_CODES } from '@/lib/dsm5Codes';
@@ -29,6 +32,7 @@ interface FormErrors {
 }
 
 const EMPTY_OBJETIVO: PlanObjetivo = { objetivo: '', tecnicas: '' };
+const EMPTY_OTRO: DxAdicional = { nombre: '' };
 
 export default function Sesion3Page() {
   const { user, isLoading } = useAuth();
@@ -49,13 +53,14 @@ export default function Sesion3Page() {
     psiquiatra_datos_pendientes: false,
   });
   const [planObjetivos, setPlanObjetivos] = useState<PlanObjetivo[]>([{ ...EMPTY_OBJETIVO }]);
+  const [otrosAdicionales, setOtrosAdicionales] = useState<DxAdicional[]>([{ ...EMPTY_OTRO }]);
   const [patientFull, setPatientFull] = useState<Patient | null>(null);
   const [isUploadingInforme, setIsUploadingInforme] = useState(false);
-  const [informeDocumento, setInformeDocumento] = useState<{ filename: string } | null>(null);
+  const [informeDocumento, setInformeDocumento] = useState<{ filename: string; id: string } | null>(null);
   const [isUploadingPlanDoc, setIsUploadingPlanDoc] = useState(false);
-  const [planDoc, setPlanDoc] = useState<{ filename: string } | null>(null);
+  const [planDoc, setPlanDoc] = useState<{ filename: string; id: string } | null>(null);
   const [isUploadingConsentDoc, setIsUploadingConsentDoc] = useState(false);
-  const [consentDoc, setConsentDoc] = useState<{ filename: string } | null>(null);
+  const [consentDoc, setConsentDoc] = useState<{ filename: string; id: string } | null>(null);
   const [todaysCita, setTodaysCita] = useState<any>(null);
   const [citas, setCitas] = useState<any[]>([]);
 
@@ -102,19 +107,41 @@ export default function Sesion3Page() {
 
   const handlePatientChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const patientId = e.target.value;
-    setFormData({ ...formData, paciente: patientId });
     const p = patients.find(pat => pat.id === patientId);
+    // Restore everything already saved for this patient — otherwise
+    // reopening someone half-finished resets all of Sesión 3 to blank,
+    // which previously meant redoing Dx/checkpoints/psiquiatra data from
+    // scratch every time a therapist left and came back.
+    setFormData({
+      paciente: patientId,
+      dx_principal: (p as any)?.dx_principal || '',
+      dx_comorbilidad: (p as any)?.dx_comorbilidad || '',
+      dx_otros: (p as any)?.dx_otros_problemas || '',
+      plan_no_suicidio: !!(p as any)?.plan_no_suicidio,
+      consentimiento: !!(p as any)?.consentimiento_informado,
+      referido_psiquiatria: !!(p as any)?.referido_psiquiatria,
+      psiquiatra_nombre: (p as any)?.psiquiatra_nombre || '',
+      psiquiatra_contacto: (p as any)?.psiquiatra_contacto || '',
+      psiquiatra_datos_pendientes: !!(p as any)?.psiquiatra_datos_pendientes,
+    });
     setPatientFull(p || null);
     setInformeDocumento(null);
     // Reflect docs already uploaded in an earlier visit — otherwise
     // reselecting this patient would show the checkbox permanently disabled
-    // even though the file genuinely exists in Airtable.
-    const existingPlanDoc = (p as any)?.plan_no_suicidio_doc?.[0];
-    const existingConsentDoc = (p as any)?.consentimiento_informado_doc?.[0];
-    setPlanDoc(existingPlanDoc ? { filename: existingPlanDoc.filename } : null);
-    setConsentDoc(existingConsentDoc ? { filename: existingConsentDoc.filename } : null);
+    // even though the file genuinely exists in Airtable. Airtable's upload
+    // endpoint APPENDS to the attachment list rather than replacing it, so
+    // "subir otro" leaves the old file in the array too — take the LAST
+    // entry (the current one), not the first (the original upload).
+    const existingPlanDocs = (p as any)?.plan_no_suicidio_doc || [];
+    const existingConsentDocs = (p as any)?.consentimiento_informado_doc || [];
+    const existingPlanDoc = existingPlanDocs[existingPlanDocs.length - 1];
+    const existingConsentDoc = existingConsentDocs[existingConsentDocs.length - 1];
+    setPlanDoc(existingPlanDoc ? { filename: existingPlanDoc.filename, id: existingPlanDoc.id } : null);
+    setConsentDoc(existingConsentDoc ? { filename: existingConsentDoc.filename, id: existingConsentDoc.id } : null);
     const existingPlan = parsePlanTratamiento((p as any)?.plan_tratamiento);
     setPlanObjetivos(existingPlan.length ? existingPlan : [{ ...EMPTY_OBJETIVO }]);
+    const existingOtros = parseDxAdicionales((p as any)?.dx_otros_adicionales);
+    setOtrosAdicionales(existingOtros.length ? existingOtros : [{ ...EMPTY_OTRO }]);
 
     const today = new Date().toISOString().slice(0, 10);
     const match = citas.find(
@@ -132,11 +159,20 @@ export default function Sesion3Page() {
   const removeObjetivo = (index: number) =>
     setPlanObjetivos((rows) => (rows.length > 1 ? rows.filter((_, i) => i !== index) : rows));
 
+  const updateOtroAdicional = (index: number, nombre: string) => {
+    setOtrosAdicionales((rows) => rows.map((row, i) => (i === index ? { ...row, nombre } : row)));
+  };
+
+  const addOtroAdicional = () => setOtrosAdicionales((rows) => [...rows, { ...EMPTY_OTRO }]);
+
+  const removeOtroAdicional = (index: number) =>
+    setOtrosAdicionales((rows) => (rows.length > 1 ? rows.filter((_, i) => i !== index) : rows));
+
   const uploadDoc = async (
     file: File,
     field: 'documentos' | 'plan_no_suicidio_doc' | 'consentimiento_informado_doc',
     setUploading: (v: boolean) => void,
-    setDoc: (v: { filename: string } | null) => void
+    setDoc: (v: { filename: string; id: string } | null) => void
   ) => {
     if (!formData.paciente) {
       window.dispatchEvent(
@@ -160,7 +196,13 @@ export default function Sesion3Page() {
         body: JSON.stringify({ filename: file.name, contentType: file.type || 'application/octet-stream', base64, field }),
       });
       if (res.ok) {
-        setDoc({ filename: file.name });
+        const data = await res.json();
+        // Take the real Airtable attachment (with its real id) back from the
+        // response rather than trusting the local File object — Airtable
+        // appends to the field's attachment list, so the one we just added
+        // is the last entry.
+        const uploaded = ((data.patient as any)?.[field] || []).slice(-1)[0];
+        setDoc(uploaded ? { filename: uploaded.filename, id: uploaded.id } : { filename: file.name, id: '' });
         window.dispatchEvent(
           new CustomEvent('showToast', { detail: { message: 'Documento subido correctamente.', isError: false } })
         );
@@ -199,6 +241,13 @@ export default function Sesion3Page() {
           dx_comorbilidad: formData.dx_comorbilidad.trim(),
           dx_comorbilidad_codigo: findDsm5Code(formData.dx_comorbilidad) || '',
           dx_otros_problemas: formData.dx_otros.trim(),
+          dx_otros_problemas_codigo: findDsm5Code(formData.dx_otros) || '',
+          dx_otros_adicionales: serializeDxAdicionales(
+            otrosAdicionales.map((o) => ({
+              nombre: o.nombre.trim(),
+              codigo: findDsm5Code(o.nombre) || undefined,
+            }))
+          ),
           plan_tratamiento: serializePlanTratamiento(planObjetivos),
           plan_no_suicidio: formData.plan_no_suicidio,
           consentimiento_informado: formData.consentimiento,
@@ -254,6 +303,10 @@ export default function Sesion3Page() {
       setIsSubmitting(false);
     }
   };
+
+  const psiquiatraDatosPreview = formData.psiquiatra_datos_pendientes
+    ? 'Pendientes'
+    : [formData.psiquiatra_nombre, formData.psiquiatra_contacto].filter(Boolean).join(' — ');
 
   return (
     <div className="flex flex-col md:flex-row h-screen bg-bg">
@@ -341,14 +394,50 @@ export default function Sesion3Page() {
             libremente también funciona, solo sin código.
           </p>
 
-          <Input
+          <Dsm5Picker
             label="Dx Otros Problemas"
-            placeholder="Otros problemas relevantes"
             value={formData.dx_otros}
-            onChange={(e) => setFormData({ ...formData, dx_otros: e.target.value })}
+            onChange={(name) => setFormData({ ...formData, dx_otros: name })}
             error={errors.dx_otros}
             required
           />
+
+          <div>
+            <label className="text-sm font-medium text-ink-soft mb-2 block">Otros</label>
+            <p className="text-xs text-ink-soft -mt-0.5 mb-2">
+              Diagnósticos o problemas adicionales, cada uno con su propio código si aplica.
+            </p>
+            <div className="space-y-3">
+              {otrosAdicionales.map((row, i) => (
+                <div key={i} className="flex gap-2 items-start bg-gray-50 border border-line rounded-lg p-3">
+                  <span className="text-xs font-mono text-ink-soft mt-3 shrink-0 w-4">{i + 1}.</span>
+                  <div className="flex-1">
+                    <Dsm5Picker
+                      label={`Otros — Diagnóstico ${i + 1}`}
+                      value={row.nombre}
+                      onChange={(name) => updateOtroAdicional(i, name)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeOtroAdicional(i)}
+                    disabled={otrosAdicionales.length === 1}
+                    className="text-ink-soft hover:text-red transition-colors duration-150 mt-2.5 disabled:opacity-30 disabled:cursor-not-allowed"
+                    aria-label="Quitar diagnóstico adicional"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={addOtroAdicional}
+              className="mt-2 text-sm text-sage-deep hover:underline underline-offset-2"
+            >
+              + Agregar otro
+            </button>
+          </div>
 
           <div>
             <label className="text-sm font-medium text-ink-soft mb-2 block">
@@ -395,26 +484,33 @@ export default function Sesion3Page() {
 
           <div className="border-t border-line pt-6 space-y-4">
             <div>
-              <label className="flex items-center justify-center gap-2 px-4 py-3 border border-dashed border-line rounded-lg text-sm text-ink-soft cursor-pointer transition-colors duration-150 hover:bg-sage-pale/30 hover:border-sage">
-                {isUploadingPlanDoc ? (
-                  'Subiendo…'
-                ) : planDoc ? (
-                  <>📄 {planDoc.filename} — subir otro</>
-                ) : (
-                  '📎 Subir documento del Plan de No Suicidio'
+              <div className="flex items-center gap-2">
+                <label className="flex-1 flex items-center justify-center gap-2 px-4 py-3 border border-dashed border-line rounded-lg text-sm text-ink-soft cursor-pointer transition-colors duration-150 hover:bg-sage-pale/30 hover:border-sage">
+                  {isUploadingPlanDoc ? 'Subiendo…' : planDoc ? '🔄 Subir otro archivo' : '📎 Subir documento del Plan de No Suicidio'}
+                  <input
+                    type="file"
+                    accept="application/pdf,image/*"
+                    className="hidden"
+                    disabled={isUploadingPlanDoc}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleUploadPlanDoc(file);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+                {planDoc?.id && (
+                  <a
+                    href={`/api/patients/${formData.paciente}/documentos/${planDoc.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 text-xs text-sage-deep hover:underline underline-offset-2"
+                    title={planDoc.filename}
+                  >
+                    📄 Ver archivo
+                  </a>
                 )}
-                <input
-                  type="file"
-                  accept="application/pdf,image/*"
-                  className="hidden"
-                  disabled={isUploadingPlanDoc}
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleUploadPlanDoc(file);
-                    e.target.value = '';
-                  }}
-                />
-              </label>
+              </div>
               <Checkbox
                 label="Plan de No Suicidio"
                 sublabel={planDoc ? 'Requerido antes de cerrar la evaluación.' : 'Sube el documento para poder marcarlo.'}
@@ -426,26 +522,33 @@ export default function Sesion3Page() {
             </div>
 
             <div>
-              <label className="flex items-center justify-center gap-2 px-4 py-3 border border-dashed border-line rounded-lg text-sm text-ink-soft cursor-pointer transition-colors duration-150 hover:bg-sage-pale/30 hover:border-sage">
-                {isUploadingConsentDoc ? (
-                  'Subiendo…'
-                ) : consentDoc ? (
-                  <>📄 {consentDoc.filename} — subir otro</>
-                ) : (
-                  '📎 Subir Consentimiento Informado firmado'
+              <div className="flex items-center gap-2">
+                <label className="flex-1 flex items-center justify-center gap-2 px-4 py-3 border border-dashed border-line rounded-lg text-sm text-ink-soft cursor-pointer transition-colors duration-150 hover:bg-sage-pale/30 hover:border-sage">
+                  {isUploadingConsentDoc ? 'Subiendo…' : consentDoc ? '🔄 Subir otro archivo' : '📎 Subir Consentimiento Informado firmado'}
+                  <input
+                    type="file"
+                    accept="application/pdf,image/*"
+                    className="hidden"
+                    disabled={isUploadingConsentDoc}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleUploadConsentDoc(file);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+                {consentDoc?.id && (
+                  <a
+                    href={`/api/patients/${formData.paciente}/documentos/${consentDoc.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 text-xs text-sage-deep hover:underline underline-offset-2"
+                    title={consentDoc.filename}
+                  >
+                    📄 Ver archivo
+                  </a>
                 )}
-                <input
-                  type="file"
-                  accept="application/pdf,image/*"
-                  className="hidden"
-                  disabled={isUploadingConsentDoc}
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleUploadConsentDoc(file);
-                    e.target.value = '';
-                  }}
-                />
-              </label>
+              </div>
               <Checkbox
                 label="Consentimiento Informado firmado"
                 sublabel={consentDoc ? undefined : 'Sube el documento para poder marcarlo.'}
@@ -537,7 +640,60 @@ export default function Sesion3Page() {
         </form>
         </div>
 
-        <FormPrintPreview title="Sesión 3 · Resultados" subtitle="Informe clínico y cierre de la evaluación">
+        <FormPrintPreview
+          title="Sesión 3 · Resultados"
+          subtitle="Informe clínico y cierre de la evaluación"
+          filename={`sesion-3-${patientFull?.paciente || 'paciente'}`}
+          pdfSections={[
+            {
+              title: 'Paciente',
+              fields: [
+                { label: 'Nombre', value: patientFull?.paciente, full: true },
+                { label: 'Cita de hoy', value: todaysCita?.hora },
+              ],
+            },
+            {
+              title: 'Diagnóstico',
+              fields: [
+                { label: 'Dx Principal', value: formData.dx_principal, full: true },
+                { label: 'Código', value: findDsm5Code(formData.dx_principal) },
+                { label: 'Dx Comorbilidad', value: formData.dx_comorbilidad, full: true },
+                { label: 'Código', value: findDsm5Code(formData.dx_comorbilidad) },
+                { label: 'Otros problemas', value: formData.dx_otros, full: true },
+                { label: 'Código', value: findDsm5Code(formData.dx_otros) },
+                ...otrosAdicionales
+                  .filter((o) => o.nombre.trim())
+                  .map((o, i) => ({
+                    label: `Otros ${i + 1}`,
+                    value: [o.nombre, findDsm5Code(o.nombre)].filter(Boolean).join(' — '),
+                    full: true,
+                  })),
+              ],
+            },
+            {
+              title: 'Plan de tratamiento',
+              fields: planObjetivos
+                .filter((o) => o.objetivo.trim() || o.tecnicas.trim())
+                .map((o, i) => ({
+                  label: `Objetivo ${i + 1}`,
+                  value: [o.objetivo, o.tecnicas].filter(Boolean).join(' — '),
+                  full: true,
+                })),
+            },
+            {
+              title: 'Checkpoints',
+              fields: [
+                { label: 'Plan de No Suicidio', value: formData.plan_no_suicidio },
+                { label: 'Consentimiento Informado', value: formData.consentimiento },
+                { label: 'Referido a Psiquiatría', value: formData.referido_psiquiatria },
+                ...(formData.referido_psiquiatria
+                  ? [{ label: 'Datos del psiquiatra', value: psiquiatraDatosPreview, full: true }]
+                  : []),
+                { label: 'Informe firmado subido', value: !!informeDocumento },
+              ],
+            },
+          ]}
+        >
           <PreviewSection title="Paciente">
             <PreviewField label="Nombre" value={patientFull?.paciente} full />
             {todaysCita && <PreviewField label="Cita de hoy" value={todaysCita.hora} />}
@@ -548,6 +704,17 @@ export default function Sesion3Page() {
             <PreviewField label="Dx Comorbilidad" value={formData.dx_comorbilidad} full />
             <PreviewField label="Código" value={findDsm5Code(formData.dx_comorbilidad)} />
             <PreviewField label="Otros problemas" value={formData.dx_otros} full />
+            <PreviewField label="Código" value={findDsm5Code(formData.dx_otros)} />
+            {otrosAdicionales
+              .filter((o) => o.nombre.trim())
+              .map((o, i) => (
+                <PreviewField
+                  key={i}
+                  label={`Otros ${i + 1}`}
+                  value={[o.nombre, findDsm5Code(o.nombre)].filter(Boolean).join(' — ')}
+                  full
+                />
+              ))}
           </PreviewSection>
           <PreviewSection title="Plan de tratamiento">
             {planObjetivos
@@ -562,15 +729,7 @@ export default function Sesion3Page() {
             <PreviewField label="Referido a Psiquiatría" value={formData.referido_psiquiatria} />
             {formData.referido_psiquiatria && (
               <>
-                <PreviewField
-                  label="Datos del psiquiatra"
-                  value={
-                    formData.psiquiatra_datos_pendientes
-                      ? 'Pendientes'
-                      : [formData.psiquiatra_nombre, formData.psiquiatra_contacto].filter(Boolean).join(' — ')
-                  }
-                  full
-                />
+                <PreviewField label="Datos del psiquiatra" value={psiquiatraDatosPreview} full />
               </>
             )}
             <PreviewField label="Informe firmado subido" value={!!informeDocumento} />

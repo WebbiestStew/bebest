@@ -1,3 +1,4 @@
+import type { ReactElement } from 'react';
 import { Patient, Cita } from './types';
 import { DSM5_CODES } from './dsm5Codes';
 
@@ -81,6 +82,21 @@ export function buildCitasFeedIcs(citas: (Cita & { id: string })[]): string {
   ].join('\r\n');
 }
 
+// Lowercases, strips accents (NFD decomposition, then strips the
+// combining diacritical marks in the U+0300-U+036F range), and collapses
+// whitespace.
+// Used anywhere two human-typed names need a forgiving comparison — e.g.
+// duplicate-patient detection, where "María Pérez" and "maria perez" should
+// still match.
+export function normalizeText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // strip accents after NFD decomposition
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // Looks up the ICD-10-CM code for a diagnosis name typed into Dx Principal /
 // Dx Comorbilidad — exact match only (case-insensitive) against the DSM-5-TR
 // classification list, since fuzzy-matching a clinical code is riskier than
@@ -148,6 +164,30 @@ export function serializePlanTratamiento(rows: PlanObjetivo[]): string {
   return nonEmpty.length ? JSON.stringify(nonEmpty) : '';
 }
 
+// Otros diagnósticos/problemas adicionales (Sesión 3) — an open-ended list
+// beyond the fixed Dx Principal/Comorbilidad/Otros Problemas slots, each row
+// optionally resolving to its own DSM-5 code the same way those three do.
+// Same JSON-in-text-field pattern as plan_tratamiento.
+export interface DxAdicional {
+  nombre: string;
+  codigo?: string;
+}
+
+export function parseDxAdicionales(raw?: string): DxAdicional[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function serializeDxAdicionales(rows: DxAdicional[]): string {
+  const nonEmpty = rows.filter((r) => r.nombre.trim());
+  return nonEmpty.length ? JSON.stringify(nonEmpty) : '';
+}
+
 // Motivo de consulta (Ficha de Registro) — "select all that apply" list of
 // concerns, stored as a JSON array string for the same reason as above.
 export function parseMotivoConsulta(raw?: string): string[] {
@@ -181,6 +221,29 @@ export function parseBateriaPruebas(raw?: string): string[] {
 }
 
 export function serializeBateriaPruebas(items: string[]): string {
+  return items.length ? JSON.stringify(items) : '';
+}
+
+// Freeform timestamped notes on a patient's ficha (see notas_generales in
+// lib/types.ts) — same JSON-in-text-field pattern as the fields above.
+// Stored newest-first so callers don't need to re-sort on every render.
+export interface NotaGeneral {
+  fecha: string; // ISO timestamp
+  autor: string;
+  texto: string;
+}
+
+export function parseNotasGenerales(raw?: string): NotaGeneral[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function serializeNotasGenerales(items: NotaGeneral[]): string {
   return items.length ? JSON.stringify(items) : '';
 }
 
@@ -317,6 +380,24 @@ export function fileToBase64(file: File): Promise<string> {
   });
 }
 
+// Renders a react-pdf element to a real .pdf file and saves it straight to
+// the user's downloads — distinct from window.print() (which just opens the
+// browser's print dialog and relies on the person choosing "Save as PDF"
+// themselves). Client-side only; react-pdf's `pdf()` builder works in the
+// browser without any server round-trip.
+export async function downloadPdf(doc: ReactElement, filename: string): Promise<void> {
+  const { pdf } = await import('@react-pdf/renderer');
+  const blob = await pdf(doc as any).toBlob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename.endsWith('.pdf') ? filename : `${filename}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 // Get initials from name
 export function getInitials(name: string): string {
   return name
@@ -325,4 +406,38 @@ export function getInitials(name: string): string {
     .join('')
     .toUpperCase()
     .slice(0, 2);
+}
+
+// A patient counts as "going quiet" once this many days pass with no
+// Completada cita — chosen as roughly a month, long enough that a normal
+// biweekly/monthly cadence doesn't false-positive, short enough to still
+// catch someone falling through the cracks before it's been a full quarter.
+export const INACTIVITY_THRESHOLD_DAYS = 28;
+// Most of the roster was bulk-imported from the clinic's old CSV with real
+// session history that simply predates this app's Agenda — a patient with no
+// Completada cita logged here isn't necessarily inactive, just untracked.
+// Bounding "never had a session" to patients registered fairly recently
+// keeps that case to "recently onboarded, never got a first session"
+// instead of flagging nearly the entire legacy roster forever.
+export const RECENT_REGISTRATION_WINDOW_DAYS = 120;
+
+// Shared by the Alertas "going quiet" list and the Pacientes table's
+// recency column/indicator, so the two can never drift on what "quiet"
+// means — see the false-positive bug this was written to avoid, documented
+// where it was first found (app/alertas/page.tsx history).
+export function getLastCompletedSessionFecha(patientId: string, citas: any[]): string | null {
+  const completed = citas
+    .filter((c: any) => (c.paciente || []).includes(patientId) && c.estado === 'Completada')
+    .sort((a: any, b: any) => (b.fecha || '').localeCompare(a.fecha || ''));
+  return completed[0]?.fecha || null;
+}
+
+export function isPatientGoingQuiet(patient: any, lastFecha: string | null): boolean {
+  if (patient.estatus_en_registro !== 'ACTIVO') return false;
+  const cutoff = Date.now() - INACTIVITY_THRESHOLD_DAYS * 86400000;
+  if (lastFecha) return new Date(lastFecha).getTime() < cutoff;
+  if (!patient.fecha_ingreso) return false;
+  const registeredAt = new Date(patient.fecha_ingreso).getTime();
+  const registeredRecently = registeredAt > Date.now() - RECENT_REGISTRATION_WINDOW_DAYS * 86400000;
+  return registeredRecently && registeredAt < cutoff;
 }

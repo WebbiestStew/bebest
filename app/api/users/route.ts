@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUserFromRequest, isAdmin } from '@/lib/session';
-import { findRecords, createRecord, deleteRecord } from '@/lib/airtable';
+import { findRecords, createRecord, updateRecord, deleteRecord } from '@/lib/airtable';
 import { User } from '@/lib/types';
 import { hashPassword } from '@/lib/auth';
 
@@ -71,6 +71,60 @@ export async function POST(request: NextRequest) {
     console.error('Error creating user:', error);
     return NextResponse.json(
       { error: (error as Error).message || 'Error al crear usuario' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  const user = await getCurrentUserFromRequest(request);
+  if (!user || !(await isAdmin(request))) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    if (!id) {
+      return NextResponse.json({ error: 'ID de usuario requerido' }, { status: 400 });
+    }
+    if (id === PRIMARY_ADMIN_ID) {
+      return NextResponse.json(
+        { error: 'La cuenta principal no se puede editar aquí.' },
+        { status: 400 }
+      );
+    }
+
+    const body = await request.json();
+
+    // An admin/developer editing their own role away from admin/developer
+    // would lock themselves out of this very page with no way back short of
+    // someone else's account — same spirit as the self-delete guard below.
+    if (id === user.id && body.rol && body.rol !== 'admin' && body.rol !== 'developer') {
+      return NextResponse.json(
+        { error: 'No puedes quitarte tu propio acceso de administrador.' },
+        { status: 400 }
+      );
+    }
+
+    const fields: Record<string, any> = {};
+    if (body.nombre !== undefined) fields.Nombre = body.nombre.trim();
+    if (body.email !== undefined) fields.Email = body.email.trim();
+    if (body.rol !== undefined) fields.Rol = body.rol;
+    if (body.password) fields.Password_hash = await hashPassword(body.password);
+
+    if (Object.keys(fields).length === 0) {
+      return NextResponse.json({ error: 'Nada que actualizar' }, { status: 400 });
+    }
+
+    const updated = await updateRecord<User & { Password_hash?: string }>('users', id, fields);
+    const { Password_hash, ...sanitizedUser } = updated;
+
+    return NextResponse.json({ user: sanitizedUser });
+  } catch (error) {
+    console.error('Error updating user:', error);
+    return NextResponse.json(
+      { error: (error as Error).message || 'Error al actualizar usuario' },
       { status: 500 }
     );
   }

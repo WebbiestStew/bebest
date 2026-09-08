@@ -240,18 +240,6 @@ export default function LoginPage() {
           )}
         </div>
 
-        {/* Info Box */}
-        {step === 'credentials' && (
-          <div
-            className="mt-6 p-4 bg-sage-pale/60 border border-sage/20 rounded-xl animate-fade-in-up"
-            style={{ animationDelay: '180ms' }}
-          >
-            <div className="text-xs font-mono text-sage-deep uppercase tracking-wider mb-1">Demo</div>
-            <p className="text-sm text-sage-deep leading-relaxed">
-              Usa <span className="font-mono font-medium">diego@bebest.com</span> con tu contraseña
-            </p>
-          </div>
-        )}
 
         {/* Footer */}
         <p className="text-center text-xs text-ink-soft mt-8 animate-fade-in" style={{ animationDelay: '260ms' }}>

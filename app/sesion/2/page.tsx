@@ -230,6 +230,13 @@ export default function Sesion2Page() {
     }
   };
 
+  const bateriaPreview = pruebas.length
+    ? pruebas
+        .filter((p) => p !== 'Otra')
+        .concat(pruebas.includes('Otra') ? [`Otra: ${formData.pruebasOtro}`] : [])
+        .join(', ')
+    : undefined;
+
   return (
     <div className="flex flex-col md:flex-row h-screen bg-bg">
       <Navigation user={user} />
@@ -377,24 +384,38 @@ export default function Sesion2Page() {
         </form>
         </div>
 
-        <FormPrintPreview title="Sesión 2 · Pruebas" subtitle="Batería de pruebas aplicadas">
+        <FormPrintPreview
+          title="Sesión 2 · Pruebas"
+          subtitle="Batería de pruebas aplicadas"
+          filename={`sesion-2-${patientFull?.paciente || 'paciente'}`}
+          pdfSections={[
+            {
+              title: 'Paciente',
+              fields: [
+                { label: 'Nombre', value: patientFull?.paciente, full: true },
+                { label: 'Cita de hoy', value: todaysCita?.hora },
+              ],
+            },
+            {
+              title: 'Pruebas aplicadas',
+              fields: [
+                { label: 'Batería', value: bateriaPreview, full: true },
+                { label: 'Observaciones', value: formData.observaciones, full: true },
+                {
+                  label: 'Archivos de resultados',
+                  value: resultFiles.length ? resultFiles.map((f) => f.name).join(', ') : undefined,
+                  full: true,
+                },
+              ],
+            },
+          ]}
+        >
           <PreviewSection title="Paciente">
             <PreviewField label="Nombre" value={patientFull?.paciente} full />
             {todaysCita && <PreviewField label="Cita de hoy" value={todaysCita.hora} />}
           </PreviewSection>
           <PreviewSection title="Pruebas aplicadas">
-            <PreviewField
-              label="Batería"
-              value={
-                pruebas.length
-                  ? pruebas
-                      .filter((p) => p !== 'Otra')
-                      .concat(pruebas.includes('Otra') ? [`Otra: ${formData.pruebasOtro}`] : [])
-                      .join(', ')
-                  : undefined
-              }
-              full
-            />
+            <PreviewField label="Batería" value={bateriaPreview} full />
             <PreviewField label="Observaciones" value={formData.observaciones} full />
             <PreviewField
               label="Archivos de resultados"

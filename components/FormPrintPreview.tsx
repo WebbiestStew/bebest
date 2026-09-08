@@ -1,32 +1,77 @@
 'use client';
 
+import { useState } from 'react';
+import { downloadPdf, normalizeText } from '@/lib/utils';
+import { PdfDocument, PdfSectionData } from '@/components/PdfDocument';
+
 // A live-updating "what this will look like on paper" panel next to a form —
 // desktop only (a phone screen can't fit a form + a letter-sized preview
-// side by side in any usable way). Also serves as the print/PDF layout:
-// print:hidden on the real form + print:block here means printing (or
-// "Save as PDF" from the print dialog, which is what browsers use for that)
-// captures only this clean version, not the interactive inputs/buttons.
+// side by side in any usable way). Two separate actions:
+// - Imprimir: window.print() opens the browser's print dialog (actual paper,
+//   or "Save as PDF" if the person picks that from the dialog themselves).
+// - Descargar PDF: renders a real .pdf file with react-pdf and saves it
+//   straight to disk, no dialog involved — this is what "I want to see the
+//   whole thing on my computer" actually needs, since print-to-PDF depends
+//   on the person choosing that option in a dialog built for paper.
+// print:hidden on the real form + print:block here means printing captures
+// only this clean version, not the interactive inputs/buttons.
 export function FormPrintPreview({
   title,
   subtitle,
+  filename,
+  pdfSections,
   children,
 }: {
   title: string;
   subtitle?: string;
+  filename?: string;
+  pdfSections?: PdfSectionData[];
   children: React.ReactNode;
 }) {
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleDownloadPdf = async () => {
+    if (!pdfSections) return;
+    setIsDownloading(true);
+    try {
+      const slug = normalizeText(filename || title)
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+      await downloadPdf(<PdfDocument title={title} subtitle={subtitle} sections={pdfSections} />, slug);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      window.dispatchEvent(
+        new CustomEvent('showToast', { detail: { message: 'Error al generar el PDF', isError: true } })
+      );
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   return (
     <aside className="hidden lg:block print:block">
       <div className="lg:sticky lg:top-8 bg-white border border-line rounded-2xl shadow-sm print:shadow-none print:border-0 p-8 print:p-0 max-h-[calc(100vh-4rem)] overflow-auto print:max-h-none print:overflow-visible">
-        <div className="flex items-center justify-between mb-6 print:hidden">
-          <span className="text-xs font-mono text-ink-soft uppercase tracking-widest">Vista previa</span>
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="text-xs font-medium text-sage-deep hover:underline underline-offset-2"
-          >
-            🖨️ Imprimir / Descargar PDF
-          </button>
+        <div className="flex items-center justify-between mb-6 print:hidden gap-3">
+          <span className="text-xs font-mono text-ink-soft uppercase tracking-widest shrink-0">Vista previa</span>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="text-xs font-medium text-ink-soft hover:text-sage-deep hover:underline underline-offset-2 transition-colors duration-150"
+            >
+              🖨️ Imprimir
+            </button>
+            {pdfSections && (
+              <button
+                type="button"
+                onClick={handleDownloadPdf}
+                disabled={isDownloading}
+                className="text-xs font-medium text-sage-deep hover:underline underline-offset-2 disabled:opacity-50 disabled:cursor-wait transition-colors duration-150"
+              >
+                {isDownloading ? 'Generando…' : '⬇️ Descargar PDF'}
+              </button>
+            )}
+          </div>
         </div>
         <div>
           <h1 className="font-serif text-2xl font-medium mb-1">{title}</h1>

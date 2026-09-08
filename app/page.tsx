@@ -24,6 +24,15 @@ const TODAY = new Date().toLocaleDateString('es-MX', {
   month: 'long',
 });
 
+const todayIso = new Date().toISOString().slice(0, 10);
+
+const citaEstadoBadge: Record<string, string> = {
+  Programada: 'bg-sage-pale text-sage-deep',
+  Completada: 'bg-blue/10 text-blue',
+  Cancelada: 'bg-red-pale text-red',
+  'No asistió': 'bg-clay-pale text-clay',
+};
+
 // Dashboard personalization — every possible shortcut, plus which ones are
 // currently shown, in what order, and at what size. Saved to localStorage
 // (per-device, not clinical data) rather than Airtable: it's the same kind
@@ -165,6 +174,8 @@ export default function Inicio() {
   const { user, isLoading } = useAuth();
   const [patients, setPatients] = useState<any[]>([]);
   const [isLoadingStats, setIsLoadingStats] = useState(true);
+  const [todayCitas, setTodayCitas] = useState<any[]>([]);
+  const [isLoadingCitas, setIsLoadingCitas] = useState(true);
   const [layout, setLayout] = useState<TileConfig[]>(DEFAULT_LAYOUT);
   const [isEditing, setIsEditing] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
@@ -209,6 +220,24 @@ export default function Inicio() {
       }
     };
     if (user) fetchPatients();
+  }, [user]);
+
+  useEffect(() => {
+    const fetchTodayCitas = async () => {
+      try {
+        const res = await fetch('/api/citas');
+        const data = await res.json();
+        const today = (data.citas || [])
+          .filter((c: any) => (c.fecha || '').slice(0, 10) === todayIso && c.estado !== 'Cancelada')
+          .sort((a: any, b: any) => (a.hora || '').localeCompare(b.hora || ''));
+        setTodayCitas(today);
+      } catch (error) {
+        console.error('Error fetching today\'s citas:', error);
+      } finally {
+        setIsLoadingCitas(false);
+      }
+    };
+    if (user) fetchTodayCitas();
   }, [user]);
 
   const stats = useMemo(() => {
@@ -326,6 +355,50 @@ export default function Inicio() {
                 )}
               </div>
             ))}
+          </div>
+
+          {/* Hoy — quick view of today's appointments */}
+          <div
+            className="bg-panel border border-line rounded-lg p-6 mb-8 max-w-2xl animate-fade-in-up"
+            style={{ animationDelay: '180ms' }}
+          >
+            <div className="text-xs font-mono text-sage-deep uppercase tracking-widest mb-4">
+              Hoy
+            </div>
+            {isLoadingCitas ? (
+              <div className="space-y-2">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : todayCitas.length === 0 ? (
+              <p className="text-sm text-ink-soft italic">No tienes citas programadas para hoy.</p>
+            ) : (
+              <div className="space-y-1">
+                {todayCitas.map((c) => {
+                  const pacienteId = (c.paciente || [])[0];
+                  const row = (
+                    <div className="flex items-center gap-4 py-2.5 border-b border-line last:border-0">
+                      <div className="text-sm font-mono text-ink-soft shrink-0 w-14">{c.hora}</div>
+                      <div className="text-sm text-ink flex-1 truncate">{c.paciente_nombre}</div>
+                      <span
+                        className={`shrink-0 text-xs font-mono px-2.5 py-0.5 rounded-full ${
+                          citaEstadoBadge[c.estado] || 'bg-gray-200 text-ink-soft'
+                        }`}
+                      >
+                        {c.estado}
+                      </span>
+                    </div>
+                  );
+                  return pacienteId ? (
+                    <Link key={c.id} href={`/paciente/${pacienteId}`} className="block hover:bg-sage-pale/20 -mx-2 px-2 rounded-lg transition-colors duration-150">
+                      {row}
+                    </Link>
+                  ) : (
+                    <div key={c.id}>{row}</div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">

@@ -84,6 +84,9 @@ export default function RegistroPage() {
   const [ineFile, setIneFile] = useState<File | null>(null);
   const [contratoFile, setContratoFile] = useState<File | null>(null);
   const [problemas, setProblemas] = useState<string[]>([]);
+  const [duplicateMatches, setDuplicateMatches] = useState<
+    { id: string; paciente: string; terapeuta?: string; estatus_en_registro?: string; telefono?: string }[]
+  >([]);
 
   const [formData, setFormData] = useState({
     terapeuta: '',
@@ -139,6 +142,29 @@ export default function RegistroPage() {
     };
     fetchTherapists();
   }, []);
+
+  // Debounced duplicate check — waits for a pause in typing rather than
+  // firing on every keystroke, and only once there's enough of a name (or a
+  // full phone number) to be worth checking.
+  useEffect(() => {
+    if (formData.nombre.trim().length < 4 && !formData.telefono.trim()) {
+      setDuplicateMatches([]);
+      return;
+    }
+    const handle = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams();
+        if (formData.nombre.trim()) params.set('nombre', formData.nombre.trim());
+        if (formData.telefono.trim()) params.set('telefono', formData.telefono.trim());
+        const res = await fetch(`/api/patients/duplicates?${params}`);
+        const data = await res.json();
+        setDuplicateMatches(data.matches || []);
+      } catch (error) {
+        console.error('Error checking for duplicate patients:', error);
+      }
+    }, 500);
+    return () => clearTimeout(handle);
+  }, [formData.nombre, formData.telefono]);
 
   if (isLoading) return null;
   if (!user) return null;
@@ -320,6 +346,26 @@ export default function RegistroPage() {
     }
   };
 
+  // Derived display values — shared between the on-screen preview and the
+  // downloadable PDF so the two never drift apart.
+  const estadoCivilPreview =
+    formData.estado_civil === 'Otros' ? formData.estado_civil_otro : formData.estado_civil;
+  const relacionPreview =
+    formData.contacto_emergencia_relacion === 'Otros'
+      ? formData.contacto_emergencia_relacion_otro
+      : formData.contacto_emergencia_relacion;
+  const problemasPreview = problemas.length
+    ? problemas.filter((p) => p !== 'Otros').concat(problemas.includes('Otros') ? [formData.problemasOtro] : []).join(', ')
+    : undefined;
+  const motivoSolicitudPreview =
+    formData.motivo_solicitud === 'Otros' ? formData.motivo_solicitud_otro : formData.motivo_solicitud;
+  const enteroPreview =
+    formData.entero === 'Recomendación de un familiar/amigo' || formData.entero === 'Otro'
+      ? `${formData.entero}: ${formData.enteroDetalle}`
+      : formData.entero;
+  const profesionalTipoPreview =
+    formData.profesional_tipo === 'Otros' ? formData.profesional_tipo_otro : formData.profesional_tipo;
+
   return (
     <div className="flex flex-col md:flex-row h-screen bg-bg">
       <Navigation user={user} />
@@ -383,6 +429,23 @@ export default function RegistroPage() {
               error={errors.nombre}
               required
             />
+
+            {duplicateMatches.length > 0 && (
+              <div className="text-sm text-clay bg-clay-pale/50 border border-clay/30 rounded-lg px-3 py-2 space-y-1.5">
+                <div>⚠️ Ya existe un paciente parecido. ¿Es la misma persona?</div>
+                {duplicateMatches.map((m) => (
+                  <a
+                    key={m.id}
+                    href={`/paciente/${m.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-xs underline decoration-dotted underline-offset-2 hover:text-red"
+                  >
+                    {m.paciente} — {m.terapeuta || 'sin terapeuta'} ({m.estatus_en_registro || 'sin estado'})
+                  </a>
+                ))}
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               <Input
@@ -808,7 +871,77 @@ export default function RegistroPage() {
         </form>
         </div>
 
-        <FormPrintPreview title="Ficha de Registro" subtitle="Registro inicial de pacientes adultos">
+        <FormPrintPreview
+          title="Ficha de Registro"
+          subtitle="Registro inicial de pacientes adultos"
+          filename={`ficha-de-registro-${formData.nombre || 'paciente'}`}
+          pdfSections={[
+            {
+              title: 'Cita',
+              fields: [
+                { label: 'Terapeuta', value: formData.terapeuta },
+                { label: 'Coterapeuta', value: formData.coterapeuta },
+                { label: 'Fecha de registro', value: formData.fecha_cita },
+              ],
+            },
+            {
+              title: 'Datos del cliente',
+              fields: [
+                { label: 'Nombre', value: formData.nombre, full: true },
+                { label: 'Fecha de nacimiento', value: formData.fecha_nacimiento },
+                { label: 'Edad', value: formData.edad },
+                { label: 'Sexo', value: formData.sexo },
+                { label: 'Estado civil', value: estadoCivilPreview },
+                { label: 'Ocupación', value: formData.ocupacion, full: true },
+                { label: 'Correo', value: formData.email },
+                { label: 'Teléfono', value: formData.telefono },
+              ],
+            },
+            {
+              title: 'Domicilio',
+              fields: [
+                { label: 'Calle', value: formData.calle, full: true },
+                { label: 'Número exterior', value: formData.numero_exterior },
+                { label: 'Número interior', value: formData.numero_interior },
+                { label: 'Colonia', value: formData.colonia },
+                { label: 'Municipio', value: formData.municipio },
+                { label: 'Estado', value: formData.estado_direccion },
+                { label: 'País', value: formData.pais },
+              ],
+            },
+            {
+              title: 'Contacto de emergencia',
+              fields: [
+                { label: 'Nombre', value: formData.contacto_emergencia_nombre, full: true },
+                { label: 'Correo', value: formData.contacto_emergencia_email },
+                { label: 'Teléfono', value: formData.contacto_emergencia_telefono },
+                { label: 'Relación', value: relacionPreview },
+              ],
+            },
+            {
+              title: 'Motivo de consulta',
+              fields: [
+                { label: 'Problemas', value: problemasPreview, full: true },
+                { label: 'Motivo de la solicitud', value: motivoSolicitudPreview, full: true },
+                { label: 'Cómo se enteró', value: enteroPreview, full: true },
+              ],
+            },
+            ...(showProfesional
+              ? [
+                  {
+                    title: 'Profesional de la salud',
+                    fields: [
+                      { label: 'Nombre', value: formData.profesional_nombre, full: true },
+                      { label: 'Tipo', value: profesionalTipoPreview },
+                      { label: 'Teléfono', value: formData.profesional_telefono },
+                      { label: 'Correo', value: formData.profesional_email },
+                      { label: 'Autoriza contacto', value: formData.profesional_autoriza },
+                    ],
+                  },
+                ]
+              : []),
+          ]}
+        >
           <PreviewSection title="Cita">
             <PreviewField label="Terapeuta" value={formData.terapeuta} />
             <PreviewField label="Coterapeuta" value={formData.coterapeuta} />
@@ -819,10 +952,7 @@ export default function RegistroPage() {
             <PreviewField label="Fecha de nacimiento" value={formData.fecha_nacimiento} />
             <PreviewField label="Edad" value={formData.edad} />
             <PreviewField label="Sexo" value={formData.sexo} />
-            <PreviewField
-              label="Estado civil"
-              value={formData.estado_civil === 'Otros' ? formData.estado_civil_otro : formData.estado_civil}
-            />
+            <PreviewField label="Estado civil" value={estadoCivilPreview} />
             <PreviewField label="Ocupación" value={formData.ocupacion} full />
             <PreviewField label="Correo" value={formData.email} />
             <PreviewField label="Teléfono" value={formData.telefono} />
@@ -840,47 +970,17 @@ export default function RegistroPage() {
             <PreviewField label="Nombre" value={formData.contacto_emergencia_nombre} full />
             <PreviewField label="Correo" value={formData.contacto_emergencia_email} />
             <PreviewField label="Teléfono" value={formData.contacto_emergencia_telefono} />
-            <PreviewField
-              label="Relación"
-              value={
-                formData.contacto_emergencia_relacion === 'Otros'
-                  ? formData.contacto_emergencia_relacion_otro
-                  : formData.contacto_emergencia_relacion
-              }
-            />
+            <PreviewField label="Relación" value={relacionPreview} />
           </PreviewSection>
           <PreviewSection title="Motivo de consulta">
-            <PreviewField
-              label="Problemas"
-              value={
-                problemas.length
-                  ? problemas.filter((p) => p !== 'Otros').concat(problemas.includes('Otros') ? [formData.problemasOtro] : []).join(', ')
-                  : undefined
-              }
-              full
-            />
-            <PreviewField
-              label="Motivo de la solicitud"
-              value={formData.motivo_solicitud === 'Otros' ? formData.motivo_solicitud_otro : formData.motivo_solicitud}
-              full
-            />
-            <PreviewField
-              label="Cómo se enteró"
-              value={
-                formData.entero === 'Recomendación de un familiar/amigo' || formData.entero === 'Otro'
-                  ? `${formData.entero}: ${formData.enteroDetalle}`
-                  : formData.entero
-              }
-              full
-            />
+            <PreviewField label="Problemas" value={problemasPreview} full />
+            <PreviewField label="Motivo de la solicitud" value={motivoSolicitudPreview} full />
+            <PreviewField label="Cómo se enteró" value={enteroPreview} full />
           </PreviewSection>
           {showProfesional && (
             <PreviewSection title="Profesional de la salud">
               <PreviewField label="Nombre" value={formData.profesional_nombre} full />
-              <PreviewField
-                label="Tipo"
-                value={formData.profesional_tipo === 'Otros' ? formData.profesional_tipo_otro : formData.profesional_tipo}
-              />
+              <PreviewField label="Tipo" value={profesionalTipoPreview} />
               <PreviewField label="Teléfono" value={formData.profesional_telefono} />
               <PreviewField label="Correo" value={formData.profesional_email} />
               <PreviewField label="Autoriza contacto" value={formData.profesional_autoriza} />

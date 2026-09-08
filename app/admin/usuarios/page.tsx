@@ -17,6 +17,11 @@ interface FormErrors {
   password?: string;
 }
 
+interface EditFormErrors {
+  nombre?: string;
+  email?: string;
+}
+
 function initials(name: string) {
   return (name || '')
     .split(' ')
@@ -41,6 +46,10 @@ export default function AdminUsuariosPage() {
   });
   const [userToDelete, setUserToDelete] = useState<{ id: string; nombre: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [editingUser, setEditingUser] = useState<any | null>(null);
+  const [editFormData, setEditFormData] = useState({ nombre: '', email: '', password: '', rol: 'user' });
+  const [editErrors, setEditErrors] = useState<EditFormErrors>({});
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   const fetchUsers = async () => {
     try {
@@ -156,6 +165,64 @@ export default function AdminUsuariosPage() {
     }
   };
 
+  const startEditing = (u: any) => {
+    setEditingUser(u);
+    setEditFormData({ nombre: u.Nombre || '', email: u.Email || '', password: '', rol: u.Rol || 'user' });
+    setEditErrors({});
+  };
+
+  const validateEditForm = () => {
+    const newErrors: EditFormErrors = {};
+    if (!editFormData.nombre.trim()) newErrors.nombre = 'Este campo es obligatorio.';
+    if (!editFormData.email.trim()) newErrors.email = 'Este campo es obligatorio.';
+    setEditErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser || !validateEditForm()) return;
+
+    setIsSavingEdit(true);
+    try {
+      const response = await fetch(`/api/users?id=${editingUser.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nombre: editFormData.nombre.trim(),
+          email: editFormData.email.trim(),
+          rol: editFormData.rol,
+          ...(editFormData.password.trim() ? { password: editFormData.password.trim() } : {}),
+        }),
+      });
+      const data = await response.json();
+
+      if (response.ok) {
+        window.dispatchEvent(
+          new CustomEvent('showToast', {
+            detail: { message: `Usuario "${editFormData.nombre}" actualizado.`, isError: false },
+          })
+        );
+        setUsers((prev) => prev.map((u) => (u.id === editingUser.id ? { ...u, ...data.user } : u)));
+        setEditingUser(null);
+      } else {
+        window.dispatchEvent(
+          new CustomEvent('showToast', {
+            detail: { message: data.error || 'Error al actualizar usuario', isError: true },
+          })
+        );
+      }
+    } catch (error) {
+      window.dispatchEvent(
+        new CustomEvent('showToast', {
+          detail: { message: 'Error al actualizar usuario', isError: true },
+        })
+      );
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
   return (
     <div className="flex flex-col md:flex-row h-screen bg-bg">
       <Navigation user={user} />
@@ -248,6 +315,14 @@ export default function AdminUsuariosPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
+                      {!u.isPrimary && (
+                        <button
+                          onClick={() => startEditing(u)}
+                          className="text-xs font-medium text-sage-deep hover:underline underline-offset-2 transition-colors duration-150 mr-4"
+                        >
+                          Editar
+                        </button>
+                      )}
                       {!u.isPrimary && u.id !== user.id && (
                         <button
                           onClick={() => setUserToDelete({ id: u.id, nombre: u.Nombre })}
@@ -335,6 +410,77 @@ export default function AdminUsuariosPage() {
         onConfirm={handleConfirmDelete}
         onCancel={() => setUserToDelete(null)}
       />
+
+      {editingUser && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink/40 backdrop-blur-sm animate-fade-in"
+          onClick={() => setEditingUser(null)}
+        >
+          <form
+            onSubmit={handleEditSubmit}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-user-title"
+            className="bg-panel border border-line rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4 animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="edit-user-title" className="font-serif text-xl font-medium">
+              Editar usuario
+            </h3>
+
+            <Input
+              label="Nombre completo"
+              value={editFormData.nombre}
+              onChange={(e) => setEditFormData({ ...editFormData, nombre: e.target.value })}
+              error={editErrors.nombre}
+              required
+            />
+
+            <Input
+              label="Correo electrónico"
+              type="email"
+              value={editFormData.email}
+              onChange={(e) => setEditFormData({ ...editFormData, email: e.target.value })}
+              error={editErrors.email}
+              required
+            />
+
+            <Input
+              label="Nueva contraseña (opcional)"
+              type="password"
+              placeholder="Dejar en blanco para no cambiarla"
+              value={editFormData.password}
+              onChange={(e) => setEditFormData({ ...editFormData, password: e.target.value })}
+            />
+
+            <Select
+              label="Rol"
+              options={[
+                { value: 'user', label: 'Psicólogo' },
+                { value: 'admin', label: 'Administrador' },
+                { value: 'developer', label: 'Desarrollador (mismos permisos que Administrador)' },
+              ]}
+              value={editFormData.rol}
+              onChange={(e) => setEditFormData({ ...editFormData, rol: e.target.value })}
+            />
+
+            <div className="flex items-center gap-3 justify-end pt-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setEditingUser(null)}
+                disabled={isSavingEdit}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" variant="primary" size="sm" isLoading={isSavingEdit} disabled={isSavingEdit}>
+                Guardar cambios
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <Toast/>
     </div>

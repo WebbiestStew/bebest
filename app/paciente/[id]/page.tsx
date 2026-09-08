@@ -8,7 +8,19 @@ import { BackButton } from '@/components/Button';
 import { useAuth } from '@/lib/useAuth';
 import { Patient } from '@/lib/types';
 import { Skeleton } from '@/components/Skeleton';
-import { fileToBase64 } from '@/lib/utils';
+import { Textarea } from '@/components/FormInputs';
+import { Button } from '@/components/Button';
+import {
+  fileToBase64,
+  parseNotasGenerales,
+  serializeNotasGenerales,
+  parsePlanTratamiento,
+  parseDxAdicionales,
+  parseMotivoConsulta,
+  parseBateriaPruebas,
+  downloadPdf,
+} from '@/lib/utils';
+import { PdfDocument, PdfSectionData } from '@/components/PdfDocument';
 
 const estadoLabel: Record<string, string> = {
   ACTIVO: 'Activo',
@@ -40,6 +52,15 @@ function formatDate(value?: string) {
   return new Date(value).toLocaleDateString('es-MX', { timeZone: 'UTC' });
 }
 
+// Unlike formatDate (used for stored yyyy-mm-dd dates, where the UTC anchor
+// avoids an off-by-one-day shift), notas_generales timestamps are real
+// moment-in-time ISO strings, so this deliberately renders in the viewer's
+// own local time zone instead.
+function formatDateTime(value?: string) {
+  if (!value) return null;
+  return new Date(value).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
@@ -61,6 +82,320 @@ export default function PacienteDetailPage() {
   const [isLoadingPatient, setIsLoadingPatient] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [sessionHistory, setSessionHistory] = useState<any[]>([]);
+  const [noteText, setNoteText] = useState('');
+  const [isAddingNote, setIsAddingNote] = useState(false);
+  const [isDownloadingBrief, setIsDownloadingBrief] = useState(false);
+  const [isDownloadingExpediente, setIsDownloadingExpediente] = useState(false);
+
+  const handleAddNote = async () => {
+    if (!noteText.trim() || !user) return;
+    setIsAddingNote(true);
+    try {
+      const existing = parseNotasGenerales((patient as any)?.notas_generales);
+      const updated = [{ fecha: new Date().toISOString(), autor: user.nombre, texto: noteText.trim() }, ...existing];
+      const res = await fetch(`/api/patients?id=${patientId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notas_generales: serializeNotasGenerales(updated) }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPatient(data.patient);
+        setNoteText('');
+        window.dispatchEvent(
+          new CustomEvent('showToast', { detail: { message: 'Nota agregada.', isError: false } })
+        );
+      } else {
+        window.dispatchEvent(
+          new CustomEvent('showToast', { detail: { message: 'Error al guardar la nota', isError: true } })
+        );
+      }
+    } catch (error) {
+      window.dispatchEvent(
+        new CustomEvent('showToast', { detail: { message: 'Error al guardar la nota', isError: true } })
+      );
+    } finally {
+      setIsAddingNote(false);
+    }
+  };
+
+  const handleDownloadBrief = async () => {
+    if (!patient) return;
+    setIsDownloadingBrief(true);
+    try {
+      const p = patient as any;
+      const plan = parsePlanTratamiento(p.plan_tratamiento);
+      const ultimaSesion = sessionHistory[0];
+      const notas = parseNotasGenerales(p.notas_generales).slice(0, 3);
+
+      const sections: PdfSectionData[] = [
+        {
+          title: 'Paciente',
+          fields: [
+            { label: 'Nombre', value: p.paciente, full: true },
+            { label: 'Edad', value: p.edad ?? null },
+            { label: 'Etapa', value: p.etapa_actual },
+            { label: 'Terapeuta', value: p.terapeuta },
+            { label: 'Coterapeuta', value: p.coterapeuta },
+            { label: 'Sesiones', value: p.num_sesiones ?? null },
+            { label: 'Inasistencias', value: p.num_inasistencias ?? null },
+          ],
+        },
+        {
+          title: 'Diagnóstico',
+          fields: [
+            { label: 'Dx Principal', value: p.dx_principal, full: true },
+            { label: 'Código', value: p.dx_principal_codigo },
+            { label: 'Dx Comorbilidad', value: p.dx_comorbilidad, full: true },
+            { label: 'Código', value: p.dx_comorbilidad_codigo },
+            { label: 'Otros problemas', value: p.dx_otros_problemas, full: true },
+            { label: 'Código', value: p.dx_otros_problemas_codigo },
+            ...parseDxAdicionales(p.dx_otros_adicionales).map((o, i) => ({
+              label: `Otros ${i + 1}`,
+              value: [o.nombre, o.codigo].filter(Boolean).join(' — '),
+              full: true,
+            })),
+          ],
+        },
+        {
+          title: 'Plan de tratamiento',
+          fields: plan.map((row, i) => ({
+            label: `Objetivo ${i + 1}`,
+            value: [row.objetivo, row.tecnicas].filter(Boolean).join(' — '),
+            full: true,
+          })),
+        },
+        {
+          title: 'Última sesión registrada',
+          fields: [
+            { label: 'Fecha', value: ultimaSesion ? formatDate(ultimaSesion.fecha) : null },
+            { label: 'Notas', value: ultimaSesion?.notas_sesion, full: true },
+          ],
+        },
+        {
+          title: 'Notas recientes',
+          fields: notas.map((n) => ({
+            label: `${formatDateTime(n.fecha)} — ${n.autor}`,
+            value: n.texto,
+            full: true,
+          })),
+        },
+        {
+          title: 'Checkpoints',
+          fields: [
+            {
+              label: 'Plan de No Suicidio',
+              value: p.plan_no_suicidio ? (p.plan_no_suicidio_doc || []).slice(-1)[0]?.filename || 'Sí' : null,
+            },
+            {
+              label: 'Consentimiento Informado',
+              value: p.consentimiento_informado
+                ? (p.consentimiento_informado_doc || []).slice(-1)[0]?.filename || 'Sí'
+                : null,
+            },
+            {
+              label: 'Psiquiatría',
+              value: p.referido_psiquiatria
+                ? p.psiquiatra_datos_pendientes
+                  ? 'Referido — datos pendientes'
+                  : p.psiquiatra_nombre || 'Referido'
+                : null,
+              full: true,
+            },
+          ],
+        },
+      ];
+
+      await downloadPdf(
+        <PdfDocument
+          title={`Antes de la sesión — ${p.paciente}`}
+          subtitle={new Date().toLocaleDateString('es-MX', { dateStyle: 'long' })}
+          sections={sections}
+          generatedNote="Consulta · Resumen previo a sesión"
+        />,
+        `antes-de-la-sesion-${p.paciente || 'paciente'}`
+      );
+    } catch (error) {
+      console.error('Error generating brief PDF:', error);
+      window.dispatchEvent(
+        new CustomEvent('showToast', { detail: { message: 'Error al generar el PDF', isError: true } })
+      );
+    } finally {
+      setIsDownloadingBrief(false);
+    }
+  };
+
+  // The full expediente, unlike "Antes de la sesión" above (a short brief),
+  // is meant to stand in for the whole paper file — every field captured
+  // across Ficha de Registro and Sesión 1/2/3 — for transfers, insurance, or
+  // supervision review. All of it already lives on this one Patient record
+  // (the schema is patient-centric, not session-centric), so this is
+  // assembly, not new data collection.
+  const handleDownloadExpediente = async () => {
+    if (!patient) return;
+    setIsDownloadingExpediente(true);
+    try {
+      const p = patient as any;
+      const plan = parsePlanTratamiento(p.plan_tratamiento);
+      const motivos = parseMotivoConsulta(p.motivo_consulta);
+      const bateria = parseBateriaPruebas(p.bateria_pruebas);
+      const notas = parseNotasGenerales(p.notas_generales);
+      const numeroExtInt =
+        [p.numero_exterior, p.numero_interior].filter(Boolean).join(p.numero_interior ? ' int. ' : '') ||
+        p.numero_ext_int;
+
+      const sections: PdfSectionData[] = [
+        {
+          title: 'Datos del cliente',
+          fields: [
+            { label: 'Nombre', value: p.paciente, full: true },
+            { label: 'Fecha de nacimiento', value: p.fecha_nacimiento ? formatDate(p.fecha_nacimiento) : null },
+            { label: 'Edad', value: p.edad ?? null },
+            { label: 'Sexo', value: p.sexo },
+            { label: 'Estado civil', value: p.estado_civil },
+            { label: 'Ocupación', value: p.ocupacion },
+            { label: 'Teléfono', value: p.telefono },
+            { label: 'Email', value: p.email },
+            { label: 'Cómo se enteró', value: p.como_se_entero },
+            { label: 'Terapeuta', value: p.terapeuta },
+            { label: 'Coterapeuta', value: p.coterapeuta },
+            { label: 'Fecha de ingreso', value: p.fecha_ingreso ? formatDate(p.fecha_ingreso) : null },
+            { label: 'Etapa actual', value: p.etapa_actual },
+          ],
+        },
+        {
+          title: 'Domicilio',
+          fields: [
+            { label: 'Calle', value: p.calle },
+            { label: 'Número', value: numeroExtInt },
+            { label: 'Colonia', value: p.colonia },
+            { label: 'Municipio', value: p.municipio },
+            { label: 'Estado', value: p.estado_direccion },
+            { label: 'País', value: p.pais },
+          ],
+        },
+        {
+          title: 'Contacto de emergencia',
+          fields: [
+            { label: 'Nombre', value: p.contacto_emergencia_nombre, full: true },
+            { label: 'Relación', value: p.contacto_emergencia_relacion },
+            { label: 'Teléfono', value: p.contacto_emergencia_telefono },
+            { label: 'Email', value: p.contacto_emergencia_email },
+          ],
+        },
+        {
+          title: 'Motivo de consulta',
+          fields: [
+            { label: 'Motivos señalados', value: motivos.join(', '), full: true },
+            { label: 'Motivo de la solicitud', value: p.motivo_solicitud, full: true },
+            ...(p.profesional_nombre
+              ? [
+                  { label: 'Profesional que canalizó', value: p.profesional_nombre, full: true },
+                  { label: 'Tipo de profesional', value: p.profesional_tipo },
+                  { label: 'Teléfono del profesional', value: p.profesional_telefono },
+                ]
+              : []),
+          ],
+        },
+        {
+          title: 'Historia clínica (Sesión 1)',
+          fields: [{ label: 'Notas de la entrevista', value: p.historia_clinica, full: true }],
+        },
+        {
+          title: 'Pruebas aplicadas (Sesión 2)',
+          fields: [
+            { label: 'Batería', value: bateria.join(', '), full: true },
+            { label: 'Observaciones', value: p.observaciones_pruebas, full: true },
+          ],
+        },
+        {
+          title: 'Diagnóstico (Sesión 3)',
+          fields: [
+            { label: 'Dx Principal', value: p.dx_principal, full: true },
+            { label: 'Código', value: p.dx_principal_codigo },
+            { label: 'Dx Comorbilidad', value: p.dx_comorbilidad, full: true },
+            { label: 'Código', value: p.dx_comorbilidad_codigo },
+            { label: 'Otros problemas', value: p.dx_otros_problemas, full: true },
+            { label: 'Código', value: p.dx_otros_problemas_codigo },
+            ...parseDxAdicionales(p.dx_otros_adicionales).map((o: any, i: number) => ({
+              label: `Otros ${i + 1}`,
+              value: [o.nombre, o.codigo].filter(Boolean).join(' — '),
+              full: true,
+            })),
+          ],
+        },
+        {
+          title: 'Plan de tratamiento',
+          fields: plan.map((row, i) => ({
+            label: `Objetivo ${i + 1}`,
+            value: [row.objetivo, row.tecnicas].filter(Boolean).join(' — '),
+            full: true,
+          })),
+        },
+        {
+          title: 'Checkpoints de cierre',
+          fields: [
+            {
+              label: 'Plan de No Suicidio',
+              value: p.plan_no_suicidio ? (p.plan_no_suicidio_doc || []).slice(-1)[0]?.filename || 'Sí' : null,
+            },
+            {
+              label: 'Consentimiento Informado',
+              value: p.consentimiento_informado
+                ? (p.consentimiento_informado_doc || []).slice(-1)[0]?.filename || 'Sí'
+                : null,
+            },
+            {
+              label: 'Psiquiatría',
+              value: p.referido_psiquiatria
+                ? p.psiquiatra_datos_pendientes
+                  ? 'Referido — datos pendientes'
+                  : [p.psiquiatra_nombre, p.psiquiatra_contacto].filter(Boolean).join(' — ') || 'Referido'
+                : 'No referido',
+              full: true,
+            },
+          ],
+        },
+        {
+          title: 'Historial de sesiones',
+          fields: sessionHistory.map((c: any) => ({
+            label: formatDate(c.fecha) || 'Sesión',
+            value: c.notas_sesion,
+            full: true,
+          })),
+        },
+        {
+          title: 'Notas generales',
+          fields: notas.map((n) => ({
+            label: `${formatDateTime(n.fecha)} — ${n.autor}`,
+            value: n.texto,
+            full: true,
+          })),
+        },
+        {
+          title: 'Documentos adjuntos',
+          fields: (p.documentos || []).map((d: any) => ({ label: 'Archivo', value: d.filename, full: true })),
+        },
+      ];
+
+      await downloadPdf(
+        <PdfDocument
+          title={`Expediente completo — ${p.paciente}`}
+          subtitle={new Date().toLocaleDateString('es-MX', { dateStyle: 'long' })}
+          sections={sections}
+          generatedNote="Consulta · Expediente completo del paciente"
+        />,
+        `expediente-${p.paciente || 'paciente'}`
+      );
+    } catch (error) {
+      console.error('Error generating expediente PDF:', error);
+      window.dispatchEvent(
+        new CustomEvent('showToast', { detail: { message: 'Error al generar el PDF', isError: true } })
+      );
+    } finally {
+      setIsDownloadingExpediente(false);
+    }
+  };
 
   const handleFileUpload = async (file: File) => {
     if (file.size > 15 * 1024 * 1024) {
@@ -204,7 +539,29 @@ export default function PacienteDetailPage() {
       <Navigation user={user} />
 
       <main className="flex-1 overflow-auto p-4 sm:p-8 lg:p-12 max-w-3xl">
-        <BackButton onClick={() => router.push('/pacientes')} />
+        <div className="flex items-center justify-between mb-1 print:hidden flex-wrap gap-2">
+          <BackButton onClick={() => router.push('/pacientes')} />
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleDownloadBrief}
+              disabled={isDownloadingBrief}
+              isLoading={isDownloadingBrief}
+            >
+              📄 Antes de la sesión (PDF)
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleDownloadExpediente}
+              disabled={isDownloadingExpediente}
+              isLoading={isDownloadingExpediente}
+            >
+              📁 Expediente completo (PDF)
+            </Button>
+          </div>
+        </div>
 
         {/* Header */}
         <div className="mb-8 flex items-start gap-5 animate-fade-in-up">
@@ -269,6 +626,56 @@ export default function PacienteDetailPage() {
           </div>
         )}
 
+        {/* Notas generales */}
+        <div
+          className="bg-panel border border-line rounded-lg p-8 mb-6 animate-fade-in-up"
+          style={{ animationDelay: '105ms' }}
+        >
+          <div className="text-xs font-mono text-sage-deep uppercase tracking-widest mb-5">
+            Notas
+          </div>
+          <div className="flex flex-col gap-3 mb-6">
+            <Textarea
+              placeholder="Agregar una nota sobre este paciente (una llamada, un comentario, un recordatorio)…"
+              rows={3}
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+            />
+            <div>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={handleAddNote}
+                disabled={!noteText.trim() || isAddingNote}
+                isLoading={isAddingNote}
+              >
+                Agregar nota
+              </Button>
+            </div>
+          </div>
+          {(() => {
+            const notas = parseNotasGenerales(p.notas_generales);
+            if (notas.length === 0) {
+              return <p className="text-sm text-ink-soft italic">Sin notas aún.</p>;
+            }
+            return (
+              <div className="space-y-4">
+                {notas.map((n: any, i: number) => (
+                  <div key={i} className="flex gap-4 pb-4 border-b border-line last:border-0 last:pb-0">
+                    <div className="text-xs font-mono text-ink-soft shrink-0 w-32 pt-0.5">
+                      {formatDateTime(n.fecha)}
+                    </div>
+                    <div className="text-sm text-ink flex-1">
+                      <div className="text-xs text-ink-soft mb-1">{n.autor}</div>
+                      {n.texto}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </div>
+
         {/* Datos del registro */}
         <div className="bg-panel border border-line rounded-lg p-8 mb-6 animate-fade-in-up" style={{ animationDelay: '120ms' }}>
           <div className="text-xs font-mono text-sage-deep uppercase tracking-widest mb-5">
@@ -299,10 +706,32 @@ export default function PacienteDetailPage() {
               <div className="text-sm mt-2 text-ink-soft">{p.dx_comorbilidad || 'Sin capturar'}</div>
             </div>
           </div>
-          <div>
+          <div className="mb-6">
             <label className="text-xs text-ink-soft uppercase tracking-wider">Dx Otros Problemas</label>
-            <div className="text-sm mt-2 text-ink-soft">{p.dx_otros_problemas || 'Sin capturar'}</div>
+            <div className="text-sm mt-2 text-ink-soft">
+              {p.dx_otros_problemas || 'Sin capturar'}
+              {p.dx_otros_problemas_codigo && (
+                <span className="text-xs font-mono text-sage-deep ml-2">({p.dx_otros_problemas_codigo})</span>
+              )}
+            </div>
           </div>
+          {(() => {
+            const otros = parseDxAdicionales(p.dx_otros_adicionales);
+            if (otros.length === 0) return null;
+            return (
+              <div>
+                <label className="text-xs text-ink-soft uppercase tracking-wider">Otros</label>
+                <div className="text-sm mt-2 text-ink-soft space-y-1">
+                  {otros.map((o, i) => (
+                    <div key={i}>
+                      {o.nombre}
+                      {o.codigo && <span className="text-xs font-mono text-sage-deep ml-2">({o.codigo})</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Documents */}
@@ -311,16 +740,43 @@ export default function PacienteDetailPage() {
             Documentos y Checkpoints
           </div>
           <div className="flex flex-wrap gap-2">
-            {p.plan_no_suicidio && (
-              <span className="bg-red-pale text-red text-xs font-mono px-3 py-1 rounded-full transition-transform duration-150 hover:scale-105">
-                Plan de No Suicidio
-              </span>
-            )}
-            {p.consentimiento_informado && (
-              <span className="bg-red-pale text-red text-xs font-mono px-3 py-1 rounded-full transition-transform duration-150 hover:scale-105">
-                Consentimiento Informado
-              </span>
-            )}
+            {(() => {
+              // Airtable's upload endpoint appends rather than replaces, so
+              // "subir otro" on Sesión 3 leaves earlier uploads in the same
+              // array — the last entry is the current one. These two were
+              // previously plain badges with no way to actually open the
+              // file back up once uploaded; now they link straight to it
+              // via the same auth-checked document route "Archivos
+              // adjuntos" below uses.
+              const planFile = (p.plan_no_suicidio_doc || []).slice(-1)[0];
+              const consentFile = (p.consentimiento_informado_doc || []).slice(-1)[0];
+              return (
+                <>
+                  {planFile && (
+                    <a
+                      href={`/api/patients/${patientId}/documentos/${planFile.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bg-red-pale text-red text-xs font-mono px-3 py-1 rounded-full transition-transform duration-150 hover:scale-105 hover:underline"
+                      title={planFile.filename}
+                    >
+                      📄 Plan de No Suicidio
+                    </a>
+                  )}
+                  {consentFile && (
+                    <a
+                      href={`/api/patients/${patientId}/documentos/${consentFile.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bg-red-pale text-red text-xs font-mono px-3 py-1 rounded-full transition-transform duration-150 hover:scale-105 hover:underline"
+                      title={consentFile.filename}
+                    >
+                      📄 Consentimiento Informado
+                    </a>
+                  )}
+                </>
+              );
+            })()}
             {p.historia_clinica && (
               <span className="bg-sage-pale text-sage-deep text-xs font-mono px-3 py-1 rounded-full transition-transform duration-150 hover:scale-105">
                 Historia Clínica

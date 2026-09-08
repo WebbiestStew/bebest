@@ -88,6 +88,14 @@ export interface Patient {
   dx_comorbilidad?: string;
   dx_comorbilidad_codigo?: string;
   dx_otros_problemas?: string;
+  // Resolved DSM-5 code for dx_otros_problemas, same pattern as
+  // dx_principal_codigo/dx_comorbilidad_codigo above.
+  dx_otros_problemas_codigo?: string;
+  // JSON-serialized DxAdicional[] (see lib/utils.ts) — an open-ended list of
+  // further diagnoses/problems beyond the three fixed slots above, each with
+  // its own optional resolved code. Same JSON-in-text-field pattern as
+  // plan_tratamiento, since Airtable has no array-of-objects field type.
+  dx_otros_adicionales?: string;
   // JSON-serialized PlanObjetivo[] (see lib/utils.ts) — the real form is a
   // table of numbered objetivos each paired with técnicas, not a paragraph.
   // Stored as a string because Airtable has no array-of-objects field type.
@@ -114,6 +122,13 @@ export interface Patient {
   informe_firmado_terapeuta?: boolean;
   informe_firmado_supervisor?: boolean;
   informe_firmado_paciente?: boolean;
+  // JSON-serialized NotaGeneral[] (see lib/utils.ts) — freeform timestamped
+  // notes a therapist can add any time from the ficha itself, independent of
+  // the Sesión 1/2/3 flow and of marking a cita "Completada" (which writes
+  // to `notas_sesion` on the cita, not here). For things with no natural
+  // home otherwise — a phone call, something a patient mentioned, a
+  // reminder for next time.
+  notas_generales?: string;
   num_sesiones?: number;
   num_inasistencias?: number;
   expediente_completo?: boolean;

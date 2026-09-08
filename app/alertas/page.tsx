@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Navigation } from '@/components/Navigation';
 import { Toast } from '@/components/Toast';
@@ -9,12 +9,15 @@ import { useAuth } from '@/lib/useAuth';
 import { Alert } from '@/lib/types';
 import { Skeleton } from '@/components/Skeleton';
 import { hasAdminAccess } from '@/lib/roles';
+import { getLastCompletedSessionFecha, isPatientGoingQuiet, INACTIVITY_THRESHOLD_DAYS } from '@/lib/utils';
 
 export default function AlertasPage() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
   const [alerts, setAlerts] = useState<(Alert & { id: string })[]>([]);
   const [isLoadingAlerts, setIsLoadingAlerts] = useState(true);
+  const [patients, setPatients] = useState<any[]>([]);
+  const [citas, setCitas] = useState<any[]>([]);
 
   useEffect(() => {
     if (!user) return;
@@ -26,9 +29,17 @@ export default function AlertasPage() {
 
     const fetchAlerts = async () => {
       try {
-        const res = await fetch('/api/alerts');
-        const data = await res.json();
-        setAlerts(data.alerts || []);
+        const [alertsRes, patientsRes, citasRes] = await Promise.all([
+          fetch('/api/alerts'),
+          fetch('/api/patients'),
+          fetch('/api/citas'),
+        ]);
+        const alertsData = await alertsRes.json();
+        const patientsData = await patientsRes.json();
+        const citasData = await citasRes.json();
+        setAlerts(alertsData.alerts || []);
+        setPatients(patientsData.patients || []);
+        setCitas(citasData.citas || []);
       } catch (error) {
         console.error('Error fetching alerts:', error);
       } finally {
@@ -38,6 +49,19 @@ export default function AlertasPage() {
 
     fetchAlerts();
   }, [user, router]);
+
+  // Computed live on each visit rather than stored — unlike the expediente
+  // and no-show alerts above (each tied to a specific save/no-show event),
+  // "no session in a while" isn't triggered by any single action, so there's
+  // nothing to hook a stored-alert creation onto. Recomputing from citas
+  // already on hand also means it can never go stale the way a
+  // once-created, never-updated stored alert could.
+  const inactivePatients = useMemo(() => {
+    return patients
+      .map((p) => ({ patient: p, lastFecha: getLastCompletedSessionFecha(p.id, citas) }))
+      .filter(({ patient, lastFecha }) => isPatientGoingQuiet(patient, lastFecha))
+      .sort((a, b) => (a.lastFecha || a.patient.fecha_ingreso || '').localeCompare(b.lastFecha || b.patient.fecha_ingreso || ''));
+  }, [patients, citas]);
 
   if (isLoading || isLoadingAlerts) {
     return (
@@ -100,6 +124,41 @@ export default function AlertasPage() {
                   ✉ Correo enviado a admin@consulta.com
                 </div>
               </div>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-12 mb-8 animate-fade-in-up">
+          <h2 className="font-serif text-2xl font-medium mb-2">Pacientes sin sesión reciente</h2>
+          <p className="text-ink-soft text-sm">
+            Pacientes activos sin una sesión completada en los últimos {INACTIVITY_THRESHOLD_DAYS} días.
+          </p>
+        </div>
+
+        {inactivePatients.length === 0 ? (
+          <div className="bg-panel border-2 border-dashed border-line rounded-lg p-10 text-center text-ink-soft animate-fade-in-up">
+            <div className="text-3xl mb-2">✓</div>
+            Todos los pacientes activos han tenido sesión recientemente.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {inactivePatients.map(({ patient, lastFecha }, i) => (
+              <a
+                key={patient.id}
+                href={`/paciente/${patient.id}`}
+                className="block bg-panel border-l-4 border-clay rounded-lg p-4 border border-clay-pale/60 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 animate-fade-in-up"
+                style={{ animationDelay: `${Math.min(i, 15) * 40}ms` }}
+              >
+                <div className="flex justify-between items-start mb-1">
+                  <div className="font-medium text-base">{patient.paciente}</div>
+                  <div className="text-xs text-ink-soft">{patient.terapeuta}</div>
+                </div>
+                <div className="text-xs text-ink-soft">
+                  {lastFecha
+                    ? `Última sesión: ${new Date(lastFecha).toLocaleDateString('es-MX', { timeZone: 'UTC' })}`
+                    : `Sin sesión desde el registro (${new Date(patient.fecha_ingreso).toLocaleDateString('es-MX', { timeZone: 'UTC' })})`}
+                </div>
+              </a>
             ))}
           </div>
         )}
