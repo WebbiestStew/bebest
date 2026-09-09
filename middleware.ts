@@ -43,7 +43,10 @@ export const config = {
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
+     * - any other static file under public/ (anything with a file
+     *   extension, e.g. /bebest-logo.png) — those need to load on the
+     *   login page itself, before there's any session to check.
      */
-    '/((?!_next/static|_next/image|favicon.ico).*)',
+    '/((?!_next/static|_next/image|favicon\\.ico|.*\\..*).*)',
   ],
 };

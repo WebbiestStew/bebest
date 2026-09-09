@@ -62,6 +62,19 @@ module.exports = {
           '0%, 100%': { opacity: '1' },
           '50%': { opacity: '0.55' },
         },
+        float: {
+          '0%, 100%': { transform: 'translateY(0)' },
+          '50%': { transform: 'translateY(-6px)' },
+        },
+        welcomePop: {
+          '0%': { opacity: '0', transform: 'scale(0.7)' },
+          '60%': { opacity: '1', transform: 'scale(1.08)' },
+          '100%': { opacity: '1', transform: 'scale(1)' },
+        },
+        welcomeRing: {
+          '0%': { transform: 'scale(0.7)', opacity: '0.6' },
+          '100%': { transform: 'scale(2.2)', opacity: '0' },
+        },
         checkPop: {
           '0%': { transform: 'scale(0.75)' },
           '55%': { transform: 'scale(1.15)' },
@@ -75,6 +88,9 @@ module.exports = {
         'slide-up-fade': 'slideUpFade 0.3s cubic-bezier(0.16, 1, 0.3, 1) both',
         shimmer: 'shimmer 1.4s ease-in-out infinite',
         'pulse-soft': 'pulseSoft 1.8s ease-in-out infinite',
+        float: 'float 4.5s ease-in-out infinite',
+        'welcome-pop': 'welcomePop 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) both',
+        'welcome-ring': 'welcomeRing 1.8s ease-out infinite',
         'check-pop': 'checkPop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) both',
       },
     },
