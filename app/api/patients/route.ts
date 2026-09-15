@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUserFromRequest, isAdmin } from '@/lib/session';
 import { createRecord, findRecords, updateRecord, getRecord, escapeAirtableFormula } from '@/lib/airtable';
 import { Patient } from '@/lib/types';
+import { logAccess, summarizeChanges } from '@/lib/auditLog';
 
 
 export async function GET(request: NextRequest) {
@@ -149,6 +150,11 @@ export async function PUT(request: NextRequest) {
 
     const body = await request.json();
     const updatedPatient = await updateRecord<Patient>('pacientes_2025_2026', patientId, body);
+
+    const detalle = summarizeChanges(patientAny, body);
+    if (detalle) {
+      logAccess(user.nombre, `editado_paciente:${detalle}`, patientId, patientAny.paciente);
+    }
 
     return NextResponse.json({ patient: updatedPatient });
   } catch (error) {

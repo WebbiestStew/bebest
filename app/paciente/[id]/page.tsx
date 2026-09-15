@@ -6,9 +6,10 @@ import { Navigation } from '@/components/Navigation';
 import { Toast } from '@/components/Toast';
 import { BackButton } from '@/components/Button';
 import { useAuth } from '@/lib/useAuth';
+import { hasAdminAccess } from '@/lib/roles';
 import { Patient } from '@/lib/types';
 import { Skeleton } from '@/components/Skeleton';
-import { Textarea } from '@/components/FormInputs';
+import { Textarea, Input, Select } from '@/components/FormInputs';
 import { Button } from '@/components/Button';
 import {
   fileToBase64,
@@ -19,6 +20,7 @@ import {
   parseMotivoConsulta,
   parseBateriaPruebas,
   downloadPdf,
+  deleteWithUndo,
 } from '@/lib/utils';
 import { PdfDocument, PdfSectionData } from '@/components/PdfDocument';
 
@@ -37,6 +39,17 @@ const estadoBadge: Record<string, string> = {
   'SIN DATO': 'bg-clay-pale text-clay',
   Reingreso: 'bg-clay-pale text-clay',
 };
+
+// Values are uppercase to match how registro/page.tsx actually stores this
+// field (formData.sexo.toUpperCase() on submit) — title-case values here
+// would silently fail to match the stored value and show as unselected.
+const SEXO_OPTIONS = [
+  { value: 'MASCULINO', label: 'Masculino' },
+  { value: 'FEMENINO', label: 'Femenino' },
+  { value: 'PREFIERO NO DECIRLO', label: 'Prefiero no decirlo' },
+];
+const ESTADO_CIVIL_OPTIONS = ['Soltero/a', 'Casado/a', 'Divorciado/a', 'Viudo/a', 'Unión Libre', 'Otros'];
+const ESTATUS_EN_REGISTRO_OPTIONS = ['ACTIVO', 'ALTA', 'BAJA', 'SIN DATO', 'Reingreso'];
 
 function initials(name: string) {
   return (name || '')
@@ -83,16 +96,132 @@ export default function PacienteDetailPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [sessionHistory, setSessionHistory] = useState<any[]>([]);
   const [noteText, setNoteText] = useState('');
+  const [noteFile, setNoteFile] = useState<File | null>(null);
   const [isAddingNote, setIsAddingNote] = useState(false);
   const [isDownloadingBrief, setIsDownloadingBrief] = useState(false);
   const [isDownloadingExpediente, setIsDownloadingExpediente] = useState(false);
+  const [downloadingSessionId, setDownloadingSessionId] = useState<string | null>(null);
+  const [therapists, setTherapists] = useState<string[]>([]);
+  const [isEditingPatient, setIsEditingPatient] = useState(false);
+  const [editFormData, setEditFormData] = useState({
+    paciente: '',
+    edad: '',
+    sexo: '',
+    estado_civil: '',
+    ocupacion: '',
+    telefono: '',
+    email: '',
+    terapeuta: '',
+    coterapeuta: '',
+    frecuencia: '',
+    tipo_ingreso: '',
+    institucion_procedencia: '',
+    estatus_en_registro: '',
+  });
+  const [isSavingPatientEdit, setIsSavingPatientEdit] = useState(false);
+
+  const startEditingPatient = () => {
+    const pt = patient as any;
+    setEditFormData({
+      paciente: pt?.paciente || '',
+      edad: pt?.edad != null ? String(pt.edad) : '',
+      sexo: pt?.sexo || '',
+      estado_civil: pt?.estado_civil || '',
+      ocupacion: pt?.ocupacion || '',
+      telefono: pt?.telefono || '',
+      email: pt?.email || '',
+      terapeuta: pt?.terapeuta || '',
+      coterapeuta: pt?.coterapeuta || '',
+      frecuencia: pt?.frecuencia || '',
+      tipo_ingreso: pt?.tipo_ingreso || '',
+      institucion_procedencia: pt?.institucion_procedencia || '',
+      estatus_en_registro: pt?.estatus_en_registro || '',
+    });
+    setIsEditingPatient(true);
+  };
+
+  const handleSavePatientEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editFormData.paciente.trim()) return;
+    setIsSavingPatientEdit(true);
+    try {
+      const res = await fetch(`/api/patients?id=${patientId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          paciente: editFormData.paciente.trim(),
+          edad: editFormData.edad ? Number(editFormData.edad) : undefined,
+          sexo: editFormData.sexo || undefined,
+          estado_civil: editFormData.estado_civil || undefined,
+          ocupacion: editFormData.ocupacion || undefined,
+          telefono: editFormData.telefono || undefined,
+          email: editFormData.email || undefined,
+          terapeuta: editFormData.terapeuta || undefined,
+          coterapeuta: editFormData.coterapeuta || '',
+          frecuencia: editFormData.frecuencia || undefined,
+          tipo_ingreso: editFormData.tipo_ingreso || undefined,
+          institucion_procedencia: editFormData.institucion_procedencia || undefined,
+          estatus_en_registro: editFormData.estatus_en_registro || undefined,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPatient(data.patient);
+        setIsEditingPatient(false);
+        window.dispatchEvent(
+          new CustomEvent('showToast', { detail: { message: 'Paciente actualizado.', isError: false } })
+        );
+      } else {
+        window.dispatchEvent(
+          new CustomEvent('showToast', { detail: { message: 'Error al actualizar el paciente', isError: true } })
+        );
+      }
+    } catch (error) {
+      window.dispatchEvent(
+        new CustomEvent('showToast', { detail: { message: 'Error al actualizar el paciente', isError: true } })
+      );
+    } finally {
+      setIsSavingPatientEdit(false);
+    }
+  };
 
   const handleAddNote = async () => {
     if (!noteText.trim() || !user) return;
     setIsAddingNote(true);
     try {
+      // The file (if any) goes into the same general `documentos` bucket as
+      // every other upload on this patient — Airtable attachment fields
+      // can't be created ad hoc per-note — and the note just remembers
+      // which attachment is its, resolved via the existing
+      // documentos-serving route.
+      let archivo: { id: string; filename: string } | undefined;
+      if (noteFile) {
+        const base64 = await fileToBase64(noteFile);
+        const uploadRes = await fetch(`/api/patients/${patientId}/documentos`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            filename: noteFile.name,
+            contentType: noteFile.type || 'application/octet-stream',
+            base64,
+          }),
+        });
+        if (uploadRes.ok) {
+          const uploadData = await uploadRes.json();
+          const uploaded = (uploadData.patient?.documentos || []).slice(-1)[0];
+          if (uploaded) archivo = { id: uploaded.id, filename: uploaded.filename };
+        } else {
+          window.dispatchEvent(
+            new CustomEvent('showToast', { detail: { message: 'No se pudo subir el archivo de la nota', isError: true } })
+          );
+        }
+      }
+
       const existing = parseNotasGenerales((patient as any)?.notas_generales);
-      const updated = [{ fecha: new Date().toISOString(), autor: user.nombre, texto: noteText.trim() }, ...existing];
+      const updated = [
+        { fecha: new Date().toISOString(), autor: user.nombre, texto: noteText.trim(), ...(archivo ? { archivo } : {}) },
+        ...existing,
+      ];
       const res = await fetch(`/api/patients?id=${patientId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -102,6 +231,7 @@ export default function PacienteDetailPage() {
         const data = await res.json();
         setPatient(data.patient);
         setNoteText('');
+        setNoteFile(null);
         window.dispatchEvent(
           new CustomEvent('showToast', { detail: { message: 'Nota agregada.', isError: false } })
         );
@@ -222,6 +352,44 @@ export default function PacienteDetailPage() {
       );
     } finally {
       setIsDownloadingBrief(false);
+    }
+  };
+
+  const handleDownloadSession = async (cita: any) => {
+    if (!patient) return;
+    setDownloadingSessionId(cita.id);
+    try {
+      const p = patient as any;
+      const sections: PdfSectionData[] = [
+        {
+          title: 'Sesión',
+          fields: [
+            { label: 'Paciente', value: p.paciente, full: true },
+            { label: 'Fecha', value: formatDate(cita.fecha) },
+            { label: 'Hora', value: cita.hora },
+            { label: 'Terapeuta', value: cita.terapeuta },
+            { label: 'Estado', value: cita.estado },
+            { label: 'Notas de la sesión', value: cita.notas_sesion, full: true },
+          ],
+        },
+      ];
+
+      await downloadPdf(
+        <PdfDocument
+          title={`Sesión — ${p.paciente}`}
+          subtitle={formatDate(cita.fecha) ?? undefined}
+          sections={sections}
+          generatedNote="Consulta · Resumen de una sesión"
+        />,
+        `sesion-${formatDate(cita.fecha)}-${p.paciente || 'paciente'}`
+      );
+    } catch (error) {
+      console.error('Error generating session PDF:', error);
+      window.dispatchEvent(
+        new CustomEvent('showToast', { detail: { message: 'Error al generar el PDF', isError: true } })
+      );
+    } finally {
+      setDownloadingSessionId(null);
     }
   };
 
@@ -433,23 +601,39 @@ export default function PacienteDetailPage() {
     }
   };
 
-  const handleDeleteDocument = async (attachmentId: string) => {
-    try {
-      const res = await fetch(`/api/patients/${patientId}/documentos?attachmentId=${attachmentId}`, {
-        method: 'DELETE',
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setPatient(data.patient);
-        window.dispatchEvent(
-          new CustomEvent('showToast', { detail: { message: 'Archivo eliminado.', isError: false } })
-        );
-      }
-    } catch (error) {
-      window.dispatchEvent(
-        new CustomEvent('showToast', { detail: { message: 'Error al eliminar el archivo', isError: true } })
-      );
-    }
+  const handleDeleteDocument = (attachmentId: string) => {
+    const previousPatient = patient;
+    const doc = ((patient as any)?.documentos || []).find((d: any) => d.id === attachmentId);
+    setPatient((prev: any) => ({
+      ...prev,
+      documentos: (prev?.documentos || []).filter((d: any) => d.id !== attachmentId),
+    }));
+
+    deleteWithUndo({
+      message: `Archivo "${doc?.filename || 'archivo'}" eliminado.`,
+      restore: () => setPatient(previousPatient),
+      performDelete: async () => {
+        try {
+          const res = await fetch(`/api/patients/${patientId}/documentos?attachmentId=${attachmentId}`, {
+            method: 'DELETE',
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setPatient(data.patient);
+          } else {
+            setPatient(previousPatient);
+            window.dispatchEvent(
+              new CustomEvent('showToast', { detail: { message: 'Error al eliminar el archivo', isError: true } })
+            );
+          }
+        } catch (error) {
+          setPatient(previousPatient);
+          window.dispatchEvent(
+            new CustomEvent('showToast', { detail: { message: 'Error al eliminar el archivo', isError: true } })
+          );
+        }
+      },
+    });
   };
 
   useEffect(() => {
@@ -486,9 +670,22 @@ export default function PacienteDetailPage() {
       }
     };
 
+    const fetchTherapists = async () => {
+      try {
+        const res = await fetch('/api/therapists');
+        if (res.ok) {
+          const data = await res.json();
+          setTherapists(data.therapists || []);
+        }
+      } catch (error) {
+        console.error('Error fetching therapists:', error);
+      }
+    };
+
     if (user) {
       fetchPatient();
       fetchSessionHistory();
+      fetchTherapists();
     }
   }, [user, patientId, router]);
 
@@ -519,6 +716,7 @@ export default function PacienteDetailPage() {
   if (!patient) return null;
 
   const p = patient as any;
+  const isAdmin = hasAdminAccess(user.rol);
 
   const registroFields = [
     { label: 'Edad', value: p.edad ?? null },
@@ -542,24 +740,31 @@ export default function PacienteDetailPage() {
         <div className="flex items-center justify-between mb-1 print:hidden flex-wrap gap-2">
           <BackButton onClick={() => router.push('/pacientes')} />
           <div className="flex items-center gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={handleDownloadBrief}
-              disabled={isDownloadingBrief}
-              isLoading={isDownloadingBrief}
-            >
-              📄 Antes de la sesión (PDF)
+            <Button variant="secondary" size="sm" onClick={startEditingPatient}>
+              ✏️ Editar
             </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={handleDownloadExpediente}
-              disabled={isDownloadingExpediente}
-              isLoading={isDownloadingExpediente}
-            >
-              📁 Expediente completo (PDF)
-            </Button>
+            {isAdmin && (
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleDownloadBrief}
+                  disabled={isDownloadingBrief}
+                  isLoading={isDownloadingBrief}
+                >
+                  📄 Antes de la sesión (PDF)
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleDownloadExpediente}
+                  disabled={isDownloadingExpediente}
+                  isLoading={isDownloadingExpediente}
+                >
+                  📁 Expediente completo (PDF)
+                </Button>
+              </>
+            )}
           </div>
         </div>
 
@@ -620,6 +825,15 @@ export default function PacienteDetailPage() {
                   <div className="text-sm text-ink-soft flex-1">
                     {c.notas_sesion || <span className="italic text-ink-soft/60">Sin notas</span>}
                   </div>
+                  {isAdmin && (
+                    <button
+                      onClick={() => handleDownloadSession(c)}
+                      disabled={downloadingSessionId === c.id}
+                      className="text-xs font-medium text-sage-deep hover:underline underline-offset-2 shrink-0 disabled:opacity-50 print:hidden"
+                    >
+                      {downloadingSessionId === c.id ? 'Generando…' : '🖨️ Imprimir'}
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -641,7 +855,7 @@ export default function PacienteDetailPage() {
               value={noteText}
               onChange={(e) => setNoteText(e.target.value)}
             />
-            <div>
+            <div className="flex items-center gap-3 flex-wrap">
               <Button
                 size="sm"
                 variant="secondary"
@@ -651,6 +865,23 @@ export default function PacienteDetailPage() {
               >
                 Agregar nota
               </Button>
+              <label className="text-xs text-ink-soft hover:text-sage-deep transition-colors duration-150 cursor-pointer underline decoration-dotted underline-offset-2">
+                {noteFile ? `📎 ${noteFile.name} — cambiar` : '📎 Adjuntar archivo (opcional)'}
+                <input
+                  type="file"
+                  className="hidden"
+                  onChange={(e) => setNoteFile(e.target.files?.[0] || null)}
+                />
+              </label>
+              {noteFile && (
+                <button
+                  type="button"
+                  onClick={() => setNoteFile(null)}
+                  className="text-xs text-ink-soft hover:text-red transition-colors duration-150"
+                >
+                  Quitar
+                </button>
+              )}
             </div>
           </div>
           {(() => {
@@ -668,6 +899,18 @@ export default function PacienteDetailPage() {
                     <div className="text-sm text-ink flex-1">
                       <div className="text-xs text-ink-soft mb-1">{n.autor}</div>
                       {n.texto}
+                      {n.archivo && (
+                        <div className="mt-1">
+                          <a
+                            href={`/api/patients/${patientId}/documentos/${n.archivo.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-sage-deep hover:underline underline-offset-2"
+                          >
+                            📎 {n.archivo.filename}
+                          </a>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -866,6 +1109,164 @@ export default function PacienteDetailPage() {
           )}
         </div>
       </main>
+
+      {isEditingPatient && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink/40 backdrop-blur-sm animate-fade-in"
+          onClick={() => setIsEditingPatient(false)}
+        >
+          <form
+            onSubmit={handleSavePatientEdit}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-patient-title"
+            className="bg-panel border border-line rounded-2xl shadow-xl max-w-xl w-full max-h-[85vh] flex flex-col animate-scale-in overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 px-8 pt-7 pb-6 border-b border-line shrink-0">
+              <div>
+                <div className="text-xs font-mono text-sage-deep uppercase tracking-widest mb-1">
+                  Ficha de paciente
+                </div>
+                <h3 id="edit-patient-title" className="font-serif text-2xl font-medium">
+                  Editar a {(patient as any)?.paciente || 'paciente'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditingPatient(false)}
+                aria-label="Cerrar"
+                className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-ink-soft hover:text-ink hover:bg-sage-pale/50 transition-colors duration-150 text-lg leading-none"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="overflow-y-auto px-8 py-6 space-y-8">
+              <div className="space-y-4">
+                <h4 className="text-xs font-mono text-sage-deep uppercase tracking-widest">Datos personales</h4>
+
+                <Input
+                  label="Nombre"
+                  value={editFormData.paciente}
+                  onChange={(e) => setEditFormData({ ...editFormData, paciente: e.target.value })}
+                  required
+                />
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Input
+                    label="Edad"
+                    type="number"
+                    min={0}
+                    value={editFormData.edad}
+                    onChange={(e) => setEditFormData({ ...editFormData, edad: e.target.value })}
+                  />
+                  <Select
+                    label="Sexo"
+                    options={SEXO_OPTIONS}
+                    value={editFormData.sexo}
+                    onChange={(e) => setEditFormData({ ...editFormData, sexo: e.target.value })}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Select
+                    label="Estado Civil"
+                    options={ESTADO_CIVIL_OPTIONS.map((o) => ({ value: o, label: o }))}
+                    value={editFormData.estado_civil}
+                    onChange={(e) => setEditFormData({ ...editFormData, estado_civil: e.target.value })}
+                  />
+                  <Input
+                    label="Profesión/ocupación"
+                    value={editFormData.ocupacion}
+                    onChange={(e) => setEditFormData({ ...editFormData, ocupacion: e.target.value })}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Input
+                    label="Correo electrónico"
+                    type="email"
+                    value={editFormData.email}
+                    onChange={(e) => setEditFormData({ ...editFormData, email: e.target.value })}
+                  />
+                  <Input
+                    label="Número de teléfono"
+                    type="tel"
+                    value={editFormData.telefono}
+                    onChange={(e) => setEditFormData({ ...editFormData, telefono: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-4 border-t border-line pt-6">
+                <h4 className="text-xs font-mono text-sage-deep uppercase tracking-widest">Datos clínicos</h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Select
+                    label="Terapeuta"
+                    placeholder="Sin asignar"
+                    options={therapists.map((t) => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) }))}
+                    value={editFormData.terapeuta}
+                    onChange={(e) => setEditFormData({ ...editFormData, terapeuta: e.target.value })}
+                  />
+                  <Select
+                    label="Coterapeuta (opcional)"
+                    placeholder="Ninguno"
+                    options={therapists
+                      .filter((t) => t !== editFormData.terapeuta)
+                      .map((t) => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) }))}
+                    value={editFormData.coterapeuta}
+                    onChange={(e) => setEditFormData({ ...editFormData, coterapeuta: e.target.value })}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Input
+                    label="Frecuencia"
+                    value={editFormData.frecuencia}
+                    onChange={(e) => setEditFormData({ ...editFormData, frecuencia: e.target.value })}
+                  />
+                  <Input
+                    label="Tipo de ingreso"
+                    value={editFormData.tipo_ingreso}
+                    onChange={(e) => setEditFormData({ ...editFormData, tipo_ingreso: e.target.value })}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Input
+                    label="Institución de procedencia"
+                    value={editFormData.institucion_procedencia}
+                    onChange={(e) => setEditFormData({ ...editFormData, institucion_procedencia: e.target.value })}
+                  />
+                  <Select
+                    label="Estatus en registro"
+                    options={ESTATUS_EN_REGISTRO_OPTIONS.map((o) => ({ value: o, label: estadoLabel[o] || o }))}
+                    value={editFormData.estatus_en_registro}
+                    onChange={(e) => setEditFormData({ ...editFormData, estatus_en_registro: e.target.value })}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 justify-end px-8 py-5 border-t border-line bg-gray-50 shrink-0">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setIsEditingPatient(false)}
+                disabled={isSavingPatientEdit}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" variant="primary" size="sm" isLoading={isSavingPatientEdit} disabled={isSavingPatientEdit}>
+                Guardar cambios
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <Toast />
     </div>

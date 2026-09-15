@@ -8,6 +8,12 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Cron-triggered endpoints authenticate with a shared secret (checked in
+  // the route itself), not a session cookie — a scheduler has neither.
+  if (request.nextUrl.pathname.startsWith('/api/cron')) {
+    return NextResponse.next();
+  }
+
   const PUBLIC_PATHS = ['/login', '/forgot-password', '/reset-password'];
   const isPublicPath = PUBLIC_PATHS.includes(request.nextUrl.pathname);
 
@@ -26,8 +32,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/', request.url));
   }
 
-  // Check admin routes
-  if (request.nextUrl.pathname.startsWith('/admin') || request.nextUrl.pathname === '/alertas') {
+  // Check admin routes. /alertas used to be admin-only here too, but it's
+  // now open to every signed-in user (scoped server-side to their own
+  // patients/expedientes instead) — see app/alertas/page.tsx.
+  if (request.nextUrl.pathname.startsWith('/admin') || request.nextUrl.pathname === '/auditoria') {
     if (user && !hasAdminAccess(user.rol)) {
       return NextResponse.redirect(new URL('/', request.url));
     }

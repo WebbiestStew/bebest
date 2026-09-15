@@ -22,11 +22,6 @@ export default function AlertasPage() {
   useEffect(() => {
     if (!user) return;
 
-    if (!hasAdminAccess(user.rol)) {
-      router.push('/');
-      return;
-    }
-
     const fetchAlerts = async () => {
       try {
         const [alertsRes, patientsRes, citasRes] = await Promise.all([
@@ -80,20 +75,26 @@ export default function AlertasPage() {
       </div>
     );
   }
-  if (!user || !hasAdminAccess(user.rol)) return null;
+  if (!user) return null;
+
+  const isAdmin = hasAdminAccess(user.rol);
 
   return (
     <div className="flex flex-col md:flex-row h-screen bg-bg">
-      <Navigation user={user} alertCount={alerts.length} />
+      <Navigation user={user} />
 
       <main className="flex-1 overflow-auto p-4 sm:p-8 lg:p-12 max-w-2xl">
         <BackButton onClick={() => router.push('/')} />
 
         <div className="mb-8 animate-fade-in-up">
-          <div className="text-sm font-mono text-sage-deep uppercase tracking-widest mb-2">Solo administradores</div>
+          <div className="text-sm font-mono text-sage-deep uppercase tracking-widest mb-2">
+            {isAdmin ? 'Todos los expedientes' : 'Tus pacientes'}
+          </div>
           <h1 className="font-serif text-4xl font-medium mb-2">Alertas de expedientes incompletos</h1>
           <p className="text-ink-soft text-base">
-            Cuando un psicólogo guarda y sale sin terminar un formulario, aparece aquí.
+            {isAdmin
+              ? 'Cuando un psicólogo guarda y sale sin terminar un formulario, aparece aquí.'
+              : 'Cuando guardas y sales sin terminar un formulario, aparece aquí.'}
           </p>
         </div>
 

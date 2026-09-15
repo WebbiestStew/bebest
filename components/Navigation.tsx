@@ -5,21 +5,46 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { User } from '@/lib/types';
 import { hasAdminAccess, roleLabel } from '@/lib/roles';
+import { GlobalSearch } from '@/components/GlobalSearch';
 
 interface NavProps {
   user: User | null;
-  alertCount?: number;
 }
 
-export function Navigation({ user, alertCount = 0 }: NavProps) {
+export function Navigation({ user }: NavProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [alertCount, setAlertCount] = useState(0);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Fetched here (rather than passed in per-page) so the badge shows up
+  // consistently everywhere, not just on the Alertas page itself. Refetches
+  // every couple minutes so it doesn't go stale on a long-open tab.
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    const fetchCount = async () => {
+      try {
+        const res = await fetch('/api/alerts');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setAlertCount((data.alerts || []).length);
+      } catch (error) {
+        console.error('Error fetching alert count:', error);
+      }
+    };
+    fetchCount();
+    const interval = setInterval(fetchCount, 120000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [user]);
 
   // Close the mobile drawer whenever the route changes
   useEffect(() => {
@@ -46,8 +71,9 @@ export function Navigation({ user, alertCount = 0 }: NavProps) {
     { href: '/pacientes', label: isAdmin ? 'Base de Datos' : 'Mis Pacientes', icon: '📊' },
     { href: '/reportes', label: 'Reportes', icon: '📈' },
     { href: '/sugerencias', label: 'Sugerencias', icon: '💡' },
-    ...(isAdmin ? [{ href: '/alertas', label: 'Alertas', icon: '🔔', badge: alertCount }] : []),
+    { href: '/alertas', label: 'Alertas', icon: '🔔', badge: alertCount },
     ...(isAdmin ? [{ href: '/admin/usuarios', label: 'Usuarios', icon: '👥' }] : []),
+    ...(isAdmin ? [{ href: '/auditoria', label: 'Historial de cambios', icon: '🕓' }] : []),
   ];
 
   if (!mounted) return null;
@@ -97,6 +123,8 @@ export function Navigation({ user, alertCount = 0 }: NavProps) {
             </svg>
           </button>
         </div>
+
+        <GlobalSearch />
 
         {user && (
           <div

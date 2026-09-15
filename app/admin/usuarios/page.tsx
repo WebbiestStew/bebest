@@ -43,11 +43,20 @@ export default function AdminUsuariosPage() {
     email: '',
     password: '',
     rol: 'user',
+    escuela: '',
+    generacion: '',
   });
   const [userToDelete, setUserToDelete] = useState<{ id: string; nombre: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [editingUser, setEditingUser] = useState<any | null>(null);
-  const [editFormData, setEditFormData] = useState({ nombre: '', email: '', password: '', rol: 'user' });
+  const [editFormData, setEditFormData] = useState({
+    nombre: '',
+    email: '',
+    password: '',
+    rol: 'user',
+    escuela: '',
+    generacion: '',
+  });
   const [editErrors, setEditErrors] = useState<EditFormErrors>({});
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
@@ -102,6 +111,8 @@ export default function AdminUsuariosPage() {
           email: formData.email.trim(),
           password: formData.password,
           rol: formData.rol,
+          escuela: formData.escuela.trim(),
+          generacion: formData.generacion.trim(),
         }),
       });
 
@@ -111,7 +122,7 @@ export default function AdminUsuariosPage() {
             detail: { message: `Usuario "${formData.nombre}" creado correctamente.`, isError: false },
           })
         );
-        setFormData({ nombre: '', email: '', password: '', rol: 'user' });
+        setFormData({ nombre: '', email: '', password: '', rol: 'user', escuela: '', generacion: '' });
         fetchUsers();
       } else {
         const error = await response.json();
@@ -167,7 +178,14 @@ export default function AdminUsuariosPage() {
 
   const startEditing = (u: any) => {
     setEditingUser(u);
-    setEditFormData({ nombre: u.Nombre || '', email: u.Email || '', password: '', rol: u.Rol || 'user' });
+    setEditFormData({
+      nombre: u.Nombre || '',
+      email: u.Email || '',
+      password: '',
+      rol: u.Rol || 'user',
+      escuela: u.Escuela || '',
+      generacion: u.Generacion || '',
+    });
     setEditErrors({});
   };
 
@@ -192,6 +210,8 @@ export default function AdminUsuariosPage() {
           nombre: editFormData.nombre.trim(),
           email: editFormData.email.trim(),
           rol: editFormData.rol,
+          escuela: editFormData.escuela.trim(),
+          generacion: editFormData.generacion.trim(),
           ...(editFormData.password.trim() ? { password: editFormData.password.trim() } : {}),
         }),
       });
@@ -292,12 +312,19 @@ export default function AdminUsuariosPage() {
                         <div className="w-8 h-8 rounded-full bg-sage-pale text-sage-deep flex items-center justify-center text-xs font-mono font-medium shrink-0">
                           {initials(u.Nombre)}
                         </div>
-                        <span className="text-sm font-medium text-ink">
-                          {u.Nombre}
-                          {u.isPrimary && (
-                            <span className="ml-2 text-xs text-ink-soft font-normal">(cuenta principal)</span>
+                        <div>
+                          <span className="text-sm font-medium text-ink">
+                            {u.Nombre}
+                            {u.isPrimary && (
+                              <span className="ml-2 text-xs text-ink-soft font-normal">(cuenta principal)</span>
+                            )}
+                          </span>
+                          {(u.Escuela || u.Generacion) && (
+                            <div className="text-xs text-ink-soft">
+                              {[u.Escuela, u.Generacion].filter(Boolean).join(' · ')}
+                            </div>
                           )}
-                        </span>
+                        </div>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-sm text-ink-soft">{u.Email}</td>
@@ -391,6 +418,21 @@ export default function AdminUsuariosPage() {
             onChange={(e) => setFormData({ ...formData, rol: e.target.value })}
           />
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <Input
+              label="Escuela (opcional)"
+              placeholder="Universidad / institución"
+              value={formData.escuela}
+              onChange={(e) => setFormData({ ...formData, escuela: e.target.value })}
+            />
+            <Input
+              label="Generación (opcional)"
+              placeholder="2024-2026"
+              value={formData.generacion}
+              onChange={(e) => setFormData({ ...formData, generacion: e.target.value })}
+            />
+          </div>
+
           <div className="flex items-center gap-4 p-6 -m-8 border-t border-line bg-gray-50">
             <Button type="submit" variant="primary" isLoading={isSubmitting} disabled={isSubmitting}>
               Crear usuario
@@ -462,6 +504,18 @@ export default function AdminUsuariosPage() {
               ]}
               value={editFormData.rol}
               onChange={(e) => setEditFormData({ ...editFormData, rol: e.target.value })}
+            />
+
+            <Input
+              label="Escuela (opcional)"
+              value={editFormData.escuela}
+              onChange={(e) => setEditFormData({ ...editFormData, escuela: e.target.value })}
+            />
+
+            <Input
+              label="Generación (opcional)"
+              value={editFormData.generacion}
+              onChange={(e) => setEditFormData({ ...editFormData, generacion: e.target.value })}
             />
 
             <div className="flex items-center gap-3 justify-end pt-2">

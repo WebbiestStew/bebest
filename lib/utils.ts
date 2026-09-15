@@ -231,6 +231,12 @@ export interface NotaGeneral {
   fecha: string; // ISO timestamp
   autor: string;
   texto: string;
+  // Optional reference to a file uploaded alongside this note. The actual
+  // bytes live in the same general `documentos` attachment bucket as every
+  // other upload on this patient (Airtable attachment fields can't be
+  // invented ad hoc) — this just remembers which one belongs to this note,
+  // resolved through the existing documentos-serving route.
+  archivo?: { id: string; filename: string };
 }
 
 export function parseNotasGenerales(raw?: string): NotaGeneral[] {
@@ -253,6 +259,42 @@ export function showToast(message: string, isError: boolean = false) {
     detail: { message, isError },
   });
   window.dispatchEvent(event);
+}
+
+// Soft-delete-with-undo: the UI should already have optimistically removed
+// the item before calling this (so it visually disappears right away);
+// `performDelete` — the real API call — only actually fires after the toast's
+// window closes, unless the person clicks "Deshacer" first, in which case
+// `restore` puts it back and the API call never happens. Note this relies on
+// the tab staying open for ~6s — if it's closed or navigated away first, the
+// timer dies and the item is never actually deleted server-side (safe by
+// default: the failure mode is "nothing happened", not "lost data").
+export function deleteWithUndo(options: {
+  message: string;
+  performDelete: () => void | Promise<void>;
+  restore: () => void;
+}) {
+  const { message, performDelete, restore } = options;
+  let undone = false;
+
+  const timer = setTimeout(() => {
+    if (!undone) performDelete();
+  }, 5500);
+
+  window.dispatchEvent(
+    new CustomEvent('showToast', {
+      detail: {
+        message,
+        isError: false,
+        actionLabel: 'Deshacer',
+        onAction: () => {
+          undone = true;
+          clearTimeout(timer);
+          restore();
+        },
+      },
+    })
+  );
 }
 
 // Validate email

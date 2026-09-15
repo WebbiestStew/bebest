@@ -170,6 +170,26 @@ export default function PacientesPage() {
     return { total, activos, altas, bajas };
   }, [patients]);
 
+  // Prevalencia de diagnósticos — how common each diagnosis is among the
+  // patients this user can see. Same fallback chain as the table's own
+  // Diagnóstico column/sort (line ~70): dx_principal (Sesión 3) first, then
+  // the two legacy roster columns for patients that predate that flow.
+  const dxPrevalence = useMemo(() => {
+    const counts = new Map<string, number>();
+    let withDx = 0;
+    patients.forEach((p: any) => {
+      const dx = (p.dx_principal || p.comorbilidad || p.diagnostico || '').trim();
+      if (dx) {
+        counts.set(dx, (counts.get(dx) || 0) + 1);
+        withDx++;
+      }
+    });
+    const sorted = Array.from(counts.entries())
+      .map(([label, value]) => ({ label, value }))
+      .sort((a, b) => b.value - a.value);
+    return { rows: sorted.slice(0, 6), total: withDx };
+  }, [patients]);
+
   if (isLoading) return null;
   if (!user) return null;
 
@@ -220,6 +240,32 @@ export default function PacientesPage() {
             </div>
           ))}
         </div>
+
+        {/* Prevalencia de diagnósticos */}
+        {!isLoading2 && dxPrevalence.rows.length > 0 && (
+          <div
+            className="bg-panel border border-line rounded-lg p-4 mb-6 animate-fade-in-up"
+            style={{ animationDelay: '220ms' }}
+          >
+            <div className="text-xs text-ink-soft uppercase tracking-wider mb-3">Prevalencia de diagnósticos</div>
+            <div className="space-y-2">
+              {dxPrevalence.rows.map((r) => {
+                const pct = dxPrevalence.total ? Math.round((r.value / dxPrevalence.total) * 100) : 0;
+                return (
+                  <div key={r.label} className="flex items-center gap-3">
+                    <div className="text-sm text-ink flex-1 truncate">{r.label}</div>
+                    <div className="flex-1 max-w-[240px] h-2 rounded-full bg-gray-100 overflow-hidden">
+                      <div className="h-full bg-sage-deep rounded-full" style={{ width: `${pct}%` }} />
+                    </div>
+                    <div className="text-xs font-mono text-ink-soft w-16 text-right shrink-0">
+                      {r.value} · {pct}%
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-3 mb-6 animate-fade-in-up" style={{ animationDelay: '160ms' }}>

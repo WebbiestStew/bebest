@@ -8,10 +8,17 @@ import { Button, BackButton } from '@/components/Button';
 import { Input, Select, Checkbox } from '@/components/FormInputs';
 import { FormPrintPreview, PreviewSection, PreviewField } from '@/components/FormPrintPreview';
 import { useAuth } from '@/lib/useAuth';
+import { hasAdminAccess } from '@/lib/roles';
 import { fileToBase64, serializeMotivoConsulta } from '@/lib/utils';
 
 const SEXO_OPTIONS = ['Masculino', 'Femenino', 'Prefiero no decirlo'];
 const ESTADO_CIVIL_OPTIONS = ['Soltero/a', 'Casado/a', 'Divorciado/a', 'Viudo/a', 'Unión Libre', 'Otros'];
+const ESTATUS_OPTIONS = [
+  { value: 'ACTIVO', label: 'Activo' },
+  { value: 'ALTA', label: 'Alta' },
+  { value: 'BAJA', label: 'Baja' },
+  { value: 'Reingreso', label: 'Reingreso' },
+];
 const RELACION_OPTIONS = ['Padre', 'Madre', 'Hermano/a', 'Pareja', 'Amigo/a', 'Tutor', 'Otros'];
 const MOTIVO_SOLICITUD_OPTIONS = [
   'Solicitud por parte del Psiquiatra',
@@ -125,6 +132,7 @@ export default function RegistroPage() {
     entero: '',
     enteroDetalle: '',
     contratoAceptado: false,
+    estatus_en_registro: 'ACTIVO',
   });
 
   useEffect(() => {
@@ -168,6 +176,8 @@ export default function RegistroPage() {
 
   if (isLoading) return null;
   if (!user) return null;
+
+  const isAdmin = hasAdminAccess(user.rol);
 
   const showProfesional = MUESTRA_SECCION_PROFESIONAL.includes(formData.motivo_solicitud);
 
@@ -291,7 +301,7 @@ export default function RegistroPage() {
             : {}),
           como_se_entero: enteroFinal,
           contrato_terapeutico_aceptado: formData.contratoAceptado,
-          estatus_en_registro: 'ACTIVO',
+          estatus_en_registro: formData.estatus_en_registro,
           etapa_actual: 'Primer contacto',
           expediente_completo: true,
         }),
@@ -408,14 +418,23 @@ export default function RegistroPage() {
             />
           </div>
 
-          <Input
-            label="Fecha de registro"
-            type="date"
-            value={formData.fecha_cita}
-            onChange={(e) => setFormData({ ...formData, fecha_cita: e.target.value })}
-            error={errors.fecha_cita}
-            required
-          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <Input
+              label="Fecha de registro"
+              type="date"
+              value={formData.fecha_cita}
+              onChange={(e) => setFormData({ ...formData, fecha_cita: e.target.value })}
+              error={errors.fecha_cita}
+              required
+            />
+            <Select
+              label="Estatus en registro"
+              options={ESTATUS_OPTIONS}
+              value={formData.estatus_en_registro}
+              onChange={(e) => setFormData({ ...formData, estatus_en_registro: e.target.value })}
+              required
+            />
+          </div>
 
           {/* Datos del cliente */}
           <div className="border-t border-line pt-6 space-y-6">
@@ -872,6 +891,7 @@ export default function RegistroPage() {
         </div>
 
         <FormPrintPreview
+          isAdmin={isAdmin}
           title="Ficha de Registro"
           subtitle="Registro inicial de pacientes adultos"
           filename={`ficha-de-registro-${formData.nombre || 'paciente'}`}
@@ -882,6 +902,7 @@ export default function RegistroPage() {
                 { label: 'Terapeuta', value: formData.terapeuta },
                 { label: 'Coterapeuta', value: formData.coterapeuta },
                 { label: 'Fecha de registro', value: formData.fecha_cita },
+                { label: 'Estatus en registro', value: formData.estatus_en_registro },
               ],
             },
             {
@@ -946,6 +967,7 @@ export default function RegistroPage() {
             <PreviewField label="Terapeuta" value={formData.terapeuta} />
             <PreviewField label="Coterapeuta" value={formData.coterapeuta} />
             <PreviewField label="Fecha de registro" value={formData.fecha_cita} />
+            <PreviewField label="Estatus en registro" value={formData.estatus_en_registro} />
           </PreviewSection>
           <PreviewSection title="Datos del cliente">
             <PreviewField label="Nombre" value={formData.nombre} full />

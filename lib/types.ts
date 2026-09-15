@@ -113,6 +113,7 @@ export interface Patient {
   psiquiatra_nombre?: string;
   psiquiatra_contacto?: string;
   psiquiatra_datos_pendientes?: boolean;
+  psiquiatra_notas?: string;
   // Signed informe de resultados (Sesión 3) — the clinic works off the
   // physical signed document, uploaded via `documentos`. These three used to
   // be per-signer checkboxes in the UI (Round 1 of the form-updates thread);
@@ -164,6 +165,10 @@ export interface Cita {
   notas_sesion?: string;
   estado: 'Programada' | 'Completada' | 'Cancelada' | 'No asistió';
   created_at?: string;
+  // Set by app/api/cron/reminders/route.ts once the day-before reminder
+  // email goes out, so the same appointment doesn't get reminded twice if
+  // the cron fires more than once in a day.
+  recordatorio_enviado?: boolean;
 }
 
 // Suggestion / feedback types

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUserFromRequest, isAdmin } from '@/lib/session';
-import { findRecords, createRecord, updateRecord, deleteRecord } from '@/lib/airtable';
+import { findRecords, createRecord, updateRecord, deleteRecord, getRecord } from '@/lib/airtable';
 import { User } from '@/lib/types';
 import { hashPassword } from '@/lib/auth';
+import { logAccess } from '@/lib/auditLog';
 
 // The hardcoded primary admin (see lib/auth.ts) has no backing Airtable
 // record — nothing to delete, and no other account should be able to.
@@ -63,8 +64,12 @@ export async function POST(request: NextRequest) {
       Email: body.email,
       Password_hash: passwordHash,
       Rol: body.rol || 'user',
+      ...(body.escuela ? { Escuela: body.escuela } : {}),
+      ...(body.generacion ? { Generacion: body.generacion } : {}),
     });
     const { Password_hash, ...sanitizedUser } = newUser;
+
+    logAccess(user.nombre, `usuario_creado:rol ${body.rol || 'user'}`, newUser.id, body.nombre);
 
     return NextResponse.json({ user: sanitizedUser }, { status: 201 });
   } catch (error) {
@@ -111,6 +116,8 @@ export async function PATCH(request: NextRequest) {
     if (body.nombre !== undefined) fields.Nombre = body.nombre.trim();
     if (body.email !== undefined) fields.Email = body.email.trim();
     if (body.rol !== undefined) fields.Rol = body.rol;
+    if (body.escuela !== undefined) fields.Escuela = body.escuela.trim();
+    if (body.generacion !== undefined) fields.Generacion = body.generacion.trim();
     if (body.password) fields.Password_hash = await hashPassword(body.password);
 
     if (Object.keys(fields).length === 0) {
@@ -156,7 +163,10 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
+    const deletedUser = await getRecord<any>('users', id);
     await deleteRecord('users', id);
+
+    logAccess(user.nombre, 'usuario_eliminado', id, deletedUser?.Nombre);
 
     return NextResponse.json({ success: true });
   } catch (error) {

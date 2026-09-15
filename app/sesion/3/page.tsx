@@ -5,9 +5,10 @@ import { useRouter } from 'next/navigation';
 import { Navigation } from '@/components/Navigation';
 import { Toast } from '@/components/Toast';
 import { Button, BackButton } from '@/components/Button';
-import { Input, Select, Checkbox } from '@/components/FormInputs';
+import { Input, Select, Checkbox, Textarea } from '@/components/FormInputs';
 import { FormPrintPreview, PreviewSection, PreviewField } from '@/components/FormPrintPreview';
 import { useAuth } from '@/lib/useAuth';
+import { hasAdminAccess } from '@/lib/roles';
 import { Patient } from '@/lib/types';
 import {
   fileToBase64,
@@ -38,10 +39,12 @@ export default function Sesion3Page() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
   const [patients, setPatients] = useState<any[]>([]);
+  const [therapists, setTherapists] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
   const [formData, setFormData] = useState({
     paciente: '',
+    terapeuta: '',
     dx_principal: '',
     dx_comorbilidad: '',
     dx_otros: '',
@@ -51,8 +54,11 @@ export default function Sesion3Page() {
     psiquiatra_nombre: '',
     psiquiatra_contacto: '',
     psiquiatra_datos_pendientes: false,
+    psiquiatra_notas: '',
   });
   const [planObjetivos, setPlanObjetivos] = useState<PlanObjetivo[]>([{ ...EMPTY_OBJETIVO }]);
+  const [draggedObjetivo, setDraggedObjetivo] = useState<number | null>(null);
+  const [dragOverObjetivo, setDragOverObjetivo] = useState<number | null>(null);
   const [otrosAdicionales, setOtrosAdicionales] = useState<DxAdicional[]>([{ ...EMPTY_OTRO }]);
   const [patientFull, setPatientFull] = useState<Patient | null>(null);
   const [isUploadingInforme, setIsUploadingInforme] = useState(false);
@@ -67,11 +73,17 @@ export default function Sesion3Page() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [patientsRes, citasRes] = await Promise.all([fetch('/api/patients'), fetch('/api/citas')]);
+        const [patientsRes, citasRes, therapistsRes] = await Promise.all([
+          fetch('/api/patients'),
+          fetch('/api/citas'),
+          fetch('/api/therapists'),
+        ]);
         const patientsData = await patientsRes.json();
         const citasData = await citasRes.json();
+        const therapistsData = await therapistsRes.json();
         setPatients(patientsData.patients || []);
         setCitas(citasData.citas || []);
+        setTherapists(therapistsData.therapists || []);
       } catch (error) {
         console.error('Error fetching data:', error);
       }
@@ -82,6 +94,8 @@ export default function Sesion3Page() {
 
   if (isLoading) return null;
   if (!user) return null;
+
+  const isAdmin = hasAdminAccess(user.rol);
 
   const validateForm = () => {
     const newErrors: FormErrors = {};
@@ -114,6 +128,7 @@ export default function Sesion3Page() {
     // scratch every time a therapist left and came back.
     setFormData({
       paciente: patientId,
+      terapeuta: (p as any)?.terapeuta || (isAdmin ? '' : user.nombre),
       dx_principal: (p as any)?.dx_principal || '',
       dx_comorbilidad: (p as any)?.dx_comorbilidad || '',
       dx_otros: (p as any)?.dx_otros_problemas || '',
@@ -123,6 +138,7 @@ export default function Sesion3Page() {
       psiquiatra_nombre: (p as any)?.psiquiatra_nombre || '',
       psiquiatra_contacto: (p as any)?.psiquiatra_contacto || '',
       psiquiatra_datos_pendientes: !!(p as any)?.psiquiatra_datos_pendientes,
+      psiquiatra_notas: (p as any)?.psiquiatra_notas || '',
     });
     setPatientFull(p || null);
     setInformeDocumento(null);
@@ -158,6 +174,16 @@ export default function Sesion3Page() {
 
   const removeObjetivo = (index: number) =>
     setPlanObjetivos((rows) => (rows.length > 1 ? rows.filter((_, i) => i !== index) : rows));
+
+  const reorderObjetivo = (from: number, to: number) => {
+    if (from === to) return;
+    setPlanObjetivos((rows) => {
+      const copy = [...rows];
+      const [moved] = copy.splice(from, 1);
+      copy.splice(to, 0, moved);
+      return copy;
+    });
+  };
 
   const updateOtroAdicional = (index: number, nombre: string) => {
     setOtrosAdicionales((rows) => rows.map((row, i) => (i === index ? { ...row, nombre } : row)));
@@ -236,6 +262,7 @@ export default function Sesion3Page() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          ...(formData.terapeuta ? { terapeuta: formData.terapeuta } : {}),
           dx_principal: formData.dx_principal.trim(),
           dx_principal_codigo: findDsm5Code(formData.dx_principal) || '',
           dx_comorbilidad: formData.dx_comorbilidad.trim(),
@@ -257,6 +284,7 @@ export default function Sesion3Page() {
                 psiquiatra_nombre: formData.psiquiatra_nombre.trim(),
                 psiquiatra_contacto: formData.psiquiatra_contacto.trim(),
                 psiquiatra_datos_pendientes: formData.psiquiatra_datos_pendientes,
+                psiquiatra_notas: formData.psiquiatra_notas.trim(),
               }
             : {}),
           num_sesiones: ((patientFull as any)?.num_sesiones || 0) + 1,
@@ -282,6 +310,22 @@ export default function Sesion3Page() {
           body: JSON.stringify({
             paciente_id: formData.paciente,
             paso_incompleto: 'Datos del psiquiatra pendientes',
+            campos_faltantes: 1,
+          }),
+        });
+      }
+
+      // The expediente is marked complete above, but a patient with zero
+      // uploaded documents almost always means something physical (INE,
+      // consentimiento, etc.) was never scanned in — flag it so the
+      // therapist and admin follow up instead of it going unnoticed.
+      if (!((patientFull as any)?.documentos?.length)) {
+        await fetch('/api/alerts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            paciente_id: formData.paciente,
+            paso_incompleto: 'Sin documentos adjuntos',
             campos_faltantes: 1,
           }),
         });
@@ -360,6 +404,18 @@ export default function Sesion3Page() {
             error={errors.paciente}
             required
           />
+
+          {isAdmin ? (
+            <Select
+              label="Terapeuta"
+              options={therapists.map((t) => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) }))}
+              value={formData.terapeuta}
+              onChange={(e) => setFormData({ ...formData, terapeuta: e.target.value })}
+            />
+          ) : (
+            <Input label="Terapeuta" value={formData.terapeuta} disabled />
+          )}
+
           {todaysCita && (
             <div className="-mt-3 text-xs text-sage-deep bg-sage-pale/40 rounded-lg px-3 py-2">
               📅 Vinculado a la cita de hoy a las {todaysCita.hora} — se marcará como completada al guardar.
@@ -446,7 +502,37 @@ export default function Sesion3Page() {
             </label>
             <div className="space-y-3">
               {planObjetivos.map((row, i) => (
-                <div key={i} className="flex gap-2 items-start bg-gray-50 border border-line rounded-lg p-3">
+                <div
+                  key={i}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    if (dragOverObjetivo !== i) setDragOverObjetivo(i);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (draggedObjetivo !== null) reorderObjetivo(draggedObjetivo, i);
+                    setDraggedObjetivo(null);
+                    setDragOverObjetivo(null);
+                  }}
+                  className={`flex gap-2 items-start border rounded-lg p-3 transition-colors duration-150 ${
+                    dragOverObjetivo === i && draggedObjetivo !== null && draggedObjetivo !== i
+                      ? 'border-sage bg-sage-pale/30'
+                      : 'bg-gray-50 border-line'
+                  } ${draggedObjetivo === i ? 'opacity-40' : ''}`}
+                >
+                  <span
+                    draggable
+                    onDragStart={() => setDraggedObjetivo(i)}
+                    onDragEnd={() => {
+                      setDraggedObjetivo(null);
+                      setDragOverObjetivo(null);
+                    }}
+                    className="text-ink-soft/50 hover:text-ink-soft mt-2.5 shrink-0 cursor-grab active:cursor-grabbing select-none"
+                    aria-label="Arrastrar para reordenar"
+                    title="Arrastrar para reordenar"
+                  >
+                    ⠿
+                  </span>
                   <span className="text-xs font-mono text-ink-soft mt-3 shrink-0 w-4">{i + 1}.</span>
                   <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <Input
@@ -590,6 +676,12 @@ export default function Sesion3Page() {
                       />
                     </div>
                   )}
+                  <Textarea
+                    label="Notas sobre la referencia (opcional)"
+                    value={formData.psiquiatra_notas}
+                    onChange={(e) => setFormData({ ...formData, psiquiatra_notas: e.target.value })}
+                    rows={3}
+                  />
                 </div>
               )}
             </div>
@@ -641,6 +733,7 @@ export default function Sesion3Page() {
         </div>
 
         <FormPrintPreview
+          isAdmin={isAdmin}
           title="Sesión 3 · Resultados"
           subtitle="Informe clínico y cierre de la evaluación"
           filename={`sesion-3-${patientFull?.paciente || 'paciente'}`}
@@ -649,6 +742,7 @@ export default function Sesion3Page() {
               title: 'Paciente',
               fields: [
                 { label: 'Nombre', value: patientFull?.paciente, full: true },
+                { label: 'Terapeuta', value: formData.terapeuta },
                 { label: 'Cita de hoy', value: todaysCita?.hora },
               ],
             },
@@ -687,7 +781,12 @@ export default function Sesion3Page() {
                 { label: 'Consentimiento Informado', value: formData.consentimiento },
                 { label: 'Referido a Psiquiatría', value: formData.referido_psiquiatria },
                 ...(formData.referido_psiquiatria
-                  ? [{ label: 'Datos del psiquiatra', value: psiquiatraDatosPreview, full: true }]
+                  ? [
+                      { label: 'Datos del psiquiatra', value: psiquiatraDatosPreview, full: true },
+                      ...(formData.psiquiatra_notas
+                        ? [{ label: 'Notas sobre la referencia', value: formData.psiquiatra_notas, full: true }]
+                        : []),
+                    ]
                   : []),
                 { label: 'Informe firmado subido', value: !!informeDocumento },
               ],
@@ -696,6 +795,7 @@ export default function Sesion3Page() {
         >
           <PreviewSection title="Paciente">
             <PreviewField label="Nombre" value={patientFull?.paciente} full />
+            <PreviewField label="Terapeuta" value={formData.terapeuta} />
             {todaysCita && <PreviewField label="Cita de hoy" value={todaysCita.hora} />}
           </PreviewSection>
           <PreviewSection title="Diagnóstico">
@@ -730,6 +830,9 @@ export default function Sesion3Page() {
             {formData.referido_psiquiatria && (
               <>
                 <PreviewField label="Datos del psiquiatra" value={psiquiatraDatosPreview} full />
+                {formData.psiquiatra_notas && (
+                  <PreviewField label="Notas sobre la referencia" value={formData.psiquiatra_notas} full />
+                )}
               </>
             )}
             <PreviewField label="Informe firmado subido" value={!!informeDocumento} />

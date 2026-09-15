@@ -8,6 +8,7 @@ import { Button, BackButton } from '@/components/Button';
 import { Input, Select, Textarea, Checkbox } from '@/components/FormInputs';
 import { FormPrintPreview, PreviewSection, PreviewField } from '@/components/FormPrintPreview';
 import { useAuth } from '@/lib/useAuth';
+import { hasAdminAccess } from '@/lib/roles';
 import { Patient } from '@/lib/types';
 import { serializeBateriaPruebas, fileToBase64 } from '@/lib/utils';
 
@@ -34,12 +35,14 @@ export default function Sesion2Page() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
   const [patients, setPatients] = useState<any[]>([]);
+  const [therapists, setTherapists] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
   const [formData, setFormData] = useState({
     paciente: '',
     pruebasOtro: '',
     observaciones: '',
+    terapeuta: '',
   });
   const [pruebas, setPruebas] = useState<string[]>([]);
   const [patientFull, setPatientFull] = useState<Patient | null>(null);
@@ -55,11 +58,17 @@ export default function Sesion2Page() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [patientsRes, citasRes] = await Promise.all([fetch('/api/patients'), fetch('/api/citas')]);
+        const [patientsRes, citasRes, therapistsRes] = await Promise.all([
+          fetch('/api/patients'),
+          fetch('/api/citas'),
+          fetch('/api/therapists'),
+        ]);
         const patientsData = await patientsRes.json();
         const citasData = await citasRes.json();
+        const therapistsData = await therapistsRes.json();
         setPatients(patientsData.patients || []);
         setCitas(citasData.citas || []);
+        setTherapists(therapistsData.therapists || []);
       } catch (error) {
         console.error('Error fetching data:', error);
       }
@@ -70,6 +79,8 @@ export default function Sesion2Page() {
 
   if (isLoading) return null;
   if (!user) return null;
+
+  const isAdmin = hasAdminAccess(user.rol);
 
   const validateForm = () => {
     const newErrors: FormErrors = {};
@@ -92,8 +103,12 @@ export default function Sesion2Page() {
 
   const handlePatientChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const patientId = e.target.value;
-    setFormData({ ...formData, paciente: patientId });
     const p = patients.find(pat => pat.id === patientId);
+    setFormData({
+      ...formData,
+      paciente: patientId,
+      terapeuta: (p as any)?.terapeuta || (isAdmin ? '' : user.nombre),
+    });
     setPatientFull(p || null);
 
     const today = new Date().toISOString().slice(0, 10);
@@ -153,6 +168,7 @@ export default function Sesion2Page() {
         body: JSON.stringify({
           bateria_pruebas: bateriaFinal(),
           observaciones_pruebas: formData.observaciones.trim(),
+          ...(formData.terapeuta ? { terapeuta: formData.terapeuta } : {}),
           num_sesiones: ((patientFull as any)?.num_sesiones || 0) + 1,
           expediente_completo: true,
         }),
@@ -196,6 +212,7 @@ export default function Sesion2Page() {
         body: JSON.stringify({
           bateria_pruebas: bateriaFinal(),
           observaciones_pruebas: formData.observaciones.trim(),
+          ...(formData.terapeuta ? { terapeuta: formData.terapeuta } : {}),
           num_sesiones: ((patientFull as any)?.num_sesiones || 0) + 1,
           expediente_completo: false,
         }),
@@ -288,6 +305,18 @@ export default function Sesion2Page() {
             error={errors.paciente}
             required
           />
+
+          {isAdmin ? (
+            <Select
+              label="Terapeuta"
+              options={therapists.map((t) => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) }))}
+              value={formData.terapeuta}
+              onChange={(e) => setFormData({ ...formData, terapeuta: e.target.value })}
+            />
+          ) : (
+            <Input label="Terapeuta" value={formData.terapeuta} disabled />
+          )}
+
           {todaysCita && (
             <div className="-mt-3 text-xs text-sage-deep bg-sage-pale/40 rounded-lg px-3 py-2">
               📅 Vinculado a la cita de hoy a las {todaysCita.hora} — se marcará como completada al guardar.
@@ -385,6 +414,7 @@ export default function Sesion2Page() {
         </div>
 
         <FormPrintPreview
+          isAdmin={isAdmin}
           title="Sesión 2 · Pruebas"
           subtitle="Batería de pruebas aplicadas"
           filename={`sesion-2-${patientFull?.paciente || 'paciente'}`}
@@ -393,6 +423,7 @@ export default function Sesion2Page() {
               title: 'Paciente',
               fields: [
                 { label: 'Nombre', value: patientFull?.paciente, full: true },
+                { label: 'Terapeuta', value: formData.terapeuta },
                 { label: 'Cita de hoy', value: todaysCita?.hora },
               ],
             },
@@ -412,6 +443,7 @@ export default function Sesion2Page() {
         >
           <PreviewSection title="Paciente">
             <PreviewField label="Nombre" value={patientFull?.paciente} full />
+            <PreviewField label="Terapeuta" value={formData.terapeuta} />
             {todaysCita && <PreviewField label="Cita de hoy" value={todaysCita.hora} />}
           </PreviewSection>
           <PreviewSection title="Pruebas aplicadas">

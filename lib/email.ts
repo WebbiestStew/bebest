@@ -17,6 +17,10 @@ interface AlertEmailInput {
   pacienteNombre: string;
   pasoIncompleto: string;
   usuarioNombre: string;
+  // The assigned therapist's own email, when known — added to the admin
+  // recipient list so they hear about it too, not just admins. Ignored while
+  // ALERT_SANDBOX_RECIPIENT is set (see note below).
+  terapeutaEmail?: string;
 }
 
 // Fires when a new alert is created (no-show streak, missing intake step,
@@ -38,7 +42,7 @@ export async function sendAlertEmail(alert: AlertEmailInput): Promise<boolean> {
   try {
     const to = process.env.ALERT_SANDBOX_RECIPIENT
       ? [process.env.ALERT_SANDBOX_RECIPIENT]
-      : await getAdminEmails();
+      : Array.from(new Set([...(await getAdminEmails()), ...(alert.terapeutaEmail ? [alert.terapeutaEmail] : [])]));
     if (to.length === 0) return false;
 
     const { error } = await resend.emails.send({
@@ -115,6 +119,69 @@ export async function sendTwoFactorCode(to: string, nombre: string, code: string
     return true;
   } catch (error) {
     console.error('Error sending 2FA email:', error);
+    return false;
+  }
+}
+
+// Fires the day before a scheduled cita (see app/api/cron/reminders/route.ts).
+// Same sandbox caveat as the other send functions above.
+export async function sendAppointmentReminderEmail(input: {
+  to: string;
+  pacienteNombre: string;
+  fecha: string;
+  hora: string;
+  terapeuta?: string;
+}): Promise<boolean> {
+  if (!resend) {
+    console.warn('RESEND_API_KEY not set — skipping reminder email');
+    return false;
+  }
+
+  try {
+    const recipient = process.env.ALERT_SANDBOX_RECIPIENT || input.to;
+    const fechaFormateada = new Date(input.fecha).toLocaleDateString('es-MX', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      timeZone: 'UTC',
+    });
+
+    const { error } = await resend.emails.send({
+      from: process.env.ALERT_EMAIL_FROM || 'Consulta <onboarding@resend.dev>',
+      to: [recipient],
+      subject: `Recordatorio: tu cita mañana a las ${input.hora}`,
+      html: `
+        <div style="font-family: sans-serif; color: #1a1a1a;">
+          <h2 style="margin-bottom: 4px;">Recordatorio de cita</h2>
+          <p style="color: #555; margin-top: 0;">Hola ${input.pacienteNombre}, tienes una cita programada:</p>
+          <table style="border-collapse: collapse; margin-top: 12px;">
+            <tr>
+              <td style="padding: 4px 12px 4px 0; color: #777;">Fecha</td>
+              <td style="padding: 4px 0; font-weight: 600;">${fechaFormateada}</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 12px 4px 0; color: #777;">Hora</td>
+              <td style="padding: 4px 0; font-weight: 600;">${input.hora}</td>
+            </tr>
+            ${
+              input.terapeuta
+                ? `<tr><td style="padding: 4px 12px 4px 0; color: #777;">Terapeuta</td><td style="padding: 4px 0;">${input.terapeuta}</td></tr>`
+                : ''
+            }
+          </table>
+          <p style="color: #777; font-size: 13px; margin-top: 20px;">Si necesitas reagendar, contáctanos lo antes posible.</p>
+        </div>
+      `,
+    });
+
+    if (error) {
+      console.error('Resend rejected reminder email:', error);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error sending reminder email:', error);
     return false;
   }
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUserFromRequest, isAdmin } from '@/lib/session';
 import { getRecord, updateRecord, uploadAttachment } from '@/lib/airtable';
 import { Patient } from '@/lib/types';
+import { logAccess } from '@/lib/auditLog';
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024; // 15MB
 
@@ -81,12 +82,20 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       return NextResponse.json({ error: 'attachmentId requerido' }, { status: 400 });
     }
 
-    const current = ((access.patient as any)[field] || []) as { id: string }[];
+    const current = ((access.patient as any)[field] || []) as { id: string; filename?: string }[];
     const remaining = current.filter((d) => d.id !== attachmentId);
+    const removed = current.find((d) => d.id === attachmentId);
 
     const updated = await updateRecord<Patient>('pacientes_2025_2026', params.id, {
       [field]: remaining,
     });
+
+    logAccess(
+      access.user.nombre,
+      `eliminado_documento:${removed?.filename || ''}`,
+      params.id,
+      (access.patient as any).paciente
+    );
 
     return NextResponse.json({ patient: updated });
   } catch (error) {

@@ -3,6 +3,7 @@ import { getCurrentUserFromRequest, isAdmin } from '@/lib/session';
 import { getRecord, updateRecord, findRecords, createRecord } from '@/lib/airtable';
 import { Cita, Patient } from '@/lib/types';
 import { sendAlertEmail } from '@/lib/email';
+import { logAccess } from '@/lib/auditLog';
 
 const BASE_ID = process.env.NEXT_PUBLIC_AIRTABLE_BASE_ID;
 const API_TOKEN = process.env.AIRTABLE_API_TOKEN;
@@ -140,6 +141,16 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       headers: { Authorization: `Bearer ${API_TOKEN}` },
     });
     if (!res.ok) throw new Error('Airtable delete failed');
+
+    const cita = access.cita as any;
+    const patientId = (cita.paciente || [])[0] || '';
+    logAccess(
+      access.user.nombre,
+      `cita_eliminada:${cita.fecha || ''} ${cita.hora || ''} · ${cita.terapeuta || ''}`.trim(),
+      patientId,
+      cita.paciente_nombre
+    );
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error deleting cita:', error);

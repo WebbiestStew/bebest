@@ -11,9 +11,15 @@ module.exports = {
       panel: '#FFFFFF',
       ink: '#24312B',
       'ink-soft': '#5B6B62',
-      sage: '#6E8F72',
-      'sage-deep': '#4C6B51',
-      'sage-pale': '#E7EEE4',
+      // "sage" is the app's one primary/interactive accent role (buttons,
+      // active nav, focus states, badges) — recolored to derive from the
+      // actual bebest logo green (#C0E852, sampled from public/bebest-logo.png)
+      // instead of the original placeholder muted green. Deliberately NOT
+      // applied to clay/blue/red (semantic status colors) or lib/chartColors.ts
+      // (a separately validated dataviz palette) — neither is a brand color.
+      sage: '#709527',
+      'sage-deep': '#435E1C',
+      'sage-pale': '#EEF6D9',
       clay: '#B9714B',
       'clay-pale': '#F3E3D8',
       line: '#E3DDCE',

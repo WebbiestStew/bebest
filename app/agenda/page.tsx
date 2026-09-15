@@ -9,6 +9,7 @@ import { Button, BackButton } from '@/components/Button';
 import { Input, Select, Textarea, Checkbox } from '@/components/FormInputs';
 import { useAuth } from '@/lib/useAuth';
 import { Skeleton } from '@/components/Skeleton';
+import { deleteWithUndo } from '@/lib/utils';
 
 const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
@@ -216,16 +217,31 @@ export default function AgendaPage() {
     setSessionNote('');
   };
 
-  const handleDelete = async (citaId: string) => {
-    try {
-      const res = await fetch(`/api/citas/${citaId}`, { method: 'DELETE' });
-      if (res.ok) {
-        window.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Cita eliminada.', isError: false } }));
-        fetchAll();
-      }
-    } catch (error) {
-      console.error('Error deleting cita:', error);
-    }
+  const handleDelete = (citaId: string) => {
+    const previousCitas = citas;
+    setCitas((prev) => prev.filter((c) => c.id !== citaId));
+
+    deleteWithUndo({
+      message: 'Cita eliminada.',
+      restore: () => setCitas(previousCitas),
+      performDelete: async () => {
+        try {
+          const res = await fetch(`/api/citas/${citaId}`, { method: 'DELETE' });
+          if (!res.ok) {
+            setCitas(previousCitas);
+            window.dispatchEvent(
+              new CustomEvent('showToast', { detail: { message: 'Error al eliminar la cita', isError: true } })
+            );
+          }
+        } catch (error) {
+          console.error('Error deleting cita:', error);
+          setCitas(previousCitas);
+          window.dispatchEvent(
+            new CustomEvent('showToast', { detail: { message: 'Error al eliminar la cita', isError: true } })
+          );
+        }
+      },
+    });
   };
 
   const openReschedule = (cita: any) => {

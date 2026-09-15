@@ -236,11 +236,12 @@ export default function ReportesPage() {
     color: CATEGORICAL[0],
   }));
 
-  // Diagnósticos más frecuentes (Dx Principal; falls back to the legacy
-  // roster `diagnostico` column for patients that predate the Sesión 3 flow)
+  // Diagnósticos más frecuentes (Dx Principal; falls back to the two legacy
+  // roster columns — comorbilidad and diagnostico — for patients that
+  // predate the Sesión 3 flow, same fallback chain as app/pacientes/page.tsx)
   const dxCounts = new Map<string, number>();
   filtered.forEach((p: any) => {
-    const dx = (p.dx_principal || p.diagnostico || '').trim();
+    const dx = (p.dx_principal || p.comorbilidad || p.diagnostico || '').trim();
     if (dx) dxCounts.set(dx, (dxCounts.get(dx) || 0) + 1);
   });
   const dxSorted = Array.from(dxCounts.entries())
@@ -295,7 +296,8 @@ export default function ReportesPage() {
         {
           title: 'Resumen',
           fields: [
-            { label: 'Pacientes en el periodo', value: filtered.length },
+            { label: 'Pacientes nuevos', value: filtered.length },
+            { label: 'Pacientes activos durante el mes', value: pacientesConSesion },
             { label: 'Edad promedio', value: avgAge ? `${avgAge} años` : null },
             { label: 'Terapeutas activos', value: terapeutaSorted.length },
             { label: 'Sesiones completadas', value: sesionesCompletadas },
@@ -399,9 +401,11 @@ export default function ReportesPage() {
             </p>
           </div>
           <div className="flex items-center gap-2 print:hidden">
-            <Button variant="secondary" onClick={() => window.print()}>
-              🖨 Imprimir
-            </Button>
+            {isAdmin && (
+              <Button variant="secondary" onClick={() => window.print()}>
+                🖨 Imprimir
+              </Button>
+            )}
             {isAdmin && (
               <Button variant="secondary" onClick={handleExportPdf} disabled={isExportingPdf} isLoading={isExportingPdf}>
                 ⬇️ Descargar reporte (PDF)
@@ -448,7 +452,8 @@ export default function ReportesPage() {
         {/* Summary stats */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
           {[
-            { label: 'Pacientes en el periodo', value: filtered.length, suffix: '' },
+            { label: 'Pacientes nuevos', value: filtered.length, suffix: '' },
+            { label: 'Pacientes activos durante el mes', value: pacientesConSesion, suffix: '' },
             { label: 'Edad promedio', value: avgAge, suffix: avgAge ? ' años' : '' },
             { label: 'Terapeutas activos', value: terapeutaSorted.length, suffix: '' },
           ].map((s, i) => (
