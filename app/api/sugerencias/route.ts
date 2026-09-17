@@ -3,6 +3,7 @@ import { getCurrentUserFromRequest } from '@/lib/session';
 import { createRecord, findRecords } from '@/lib/airtable';
 import { Sugerencia } from '@/lib/types';
 import { roleLabel } from '@/lib/roles';
+import { sendSugerenciaEmail } from '@/lib/email';
 
 export async function GET(request: NextRequest) {
   const user = await getCurrentUserFromRequest(request);
@@ -39,6 +40,13 @@ export async function POST(request: NextRequest) {
       pagina: body.pagina || '',
       fecha_hora: new Date().toISOString(),
       estado: 'Nueva',
+    });
+
+    await sendSugerenciaEmail({
+      mensaje: sugerencia.mensaje,
+      usuarioNombre: user.nombre,
+      usuarioRol: roleLabel(user.rol),
+      pagina: body.pagina,
     });
 
     return NextResponse.json({ sugerencia }, { status: 201 });

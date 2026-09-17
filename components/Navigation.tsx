@@ -133,13 +133,19 @@ export function Navigation({ user }: NavProps) {
           >
             <div className="text-sm font-medium text-gray-100">{user.nombre}</div>
             <div className="text-xs text-gray-400 mb-3">{roleLabel(user.rol)}</div>
-            <button
-              onClick={handleLogout}
-              className="group text-xs text-gray-300 hover:text-white transition-colors duration-150"
-            >
-              Cerrar sesión{' '}
-              <span className="inline-block transition-transform duration-150 group-hover:translate-x-0.5">→</span>
-            </button>
+            <div className="flex items-center gap-3">
+              <Link href="/perfil" className="text-xs text-gray-300 hover:text-white transition-colors duration-150">
+                Mi cuenta
+              </Link>
+              <span className="text-gray-600">·</span>
+              <button
+                onClick={handleLogout}
+                className="group text-xs text-gray-300 hover:text-white transition-colors duration-150"
+              >
+                Cerrar sesión{' '}
+                <span className="inline-block transition-transform duration-150 group-hover:translate-x-0.5">→</span>
+              </button>
+            </div>
           </div>
         )}
 

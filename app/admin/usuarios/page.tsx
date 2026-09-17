@@ -437,7 +437,7 @@ export default function AdminUsuariosPage() {
             <Button type="submit" variant="primary" isLoading={isSubmitting} disabled={isSubmitting}>
               Crear usuario
             </Button>
-            <span className="text-xs text-ink-soft ml-auto">El usuario podrá cambiar su contraseña en el primer Login</span>
+            <span className="text-xs text-ink-soft ml-auto">El usuario podrá cambiar esta contraseña desde su cuenta una vez que inicie sesión</span>
           </div>
         </form>
       </main>
