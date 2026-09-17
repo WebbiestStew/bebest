@@ -10,7 +10,7 @@ import { FormPrintPreview, PreviewSection, PreviewField } from '@/components/For
 import { useAuth } from '@/lib/useAuth';
 import { hasAdminAccess } from '@/lib/roles';
 import { Patient } from '@/lib/types';
-import { fileToBase64 } from '@/lib/utils';
+import { uploadPatientDocument } from '@/lib/utils';
 
 interface FormErrors {
   paciente?: string;
@@ -99,12 +99,7 @@ export default function Sesion1Page() {
     setIsUploadingEntrevistaFiles(true);
     try {
       for (const file of entrevistaFiles) {
-        const base64 = await fileToBase64(file);
-        await fetch(`/api/patients/${patientId}/documentos`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filename: file.name, contentType: file.type || 'application/octet-stream', base64 }),
-        });
+        await uploadPatientDocument(patientId, file);
       }
     } catch {
       window.dispatchEvent(

@@ -11,7 +11,7 @@ import { useAuth } from '@/lib/useAuth';
 import { hasAdminAccess } from '@/lib/roles';
 import { Patient } from '@/lib/types';
 import {
-  fileToBase64,
+  uploadPatientDocument,
   parsePlanTratamiento,
   serializePlanTratamiento,
   PlanObjetivo,
@@ -215,12 +215,7 @@ export default function Sesion3Page() {
 
     setUploading(true);
     try {
-      const base64 = await fileToBase64(file);
-      const res = await fetch(`/api/patients/${formData.paciente}/documentos`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filename: file.name, contentType: file.type || 'application/octet-stream', base64, field }),
-      });
+      const res = await uploadPatientDocument(formData.paciente, file, field);
       if (res.ok) {
         const data = await res.json();
         // Take the real Airtable attachment (with its real id) back from the

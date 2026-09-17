@@ -13,7 +13,7 @@ import { Textarea, Input, Select } from '@/components/FormInputs';
 import { Button } from '@/components/Button';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
-  fileToBase64,
+  uploadPatientDocument,
   parseNotasGenerales,
   serializeNotasGenerales,
   parsePlanTratamiento,
@@ -267,16 +267,7 @@ export default function PacienteDetailPage() {
       // documentos-serving route.
       let archivo: { id: string; filename: string } | undefined;
       if (noteFile) {
-        const base64 = await fileToBase64(noteFile);
-        const uploadRes = await fetch(`/api/patients/${patientId}/documentos`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            filename: noteFile.name,
-            contentType: noteFile.type || 'application/octet-stream',
-            base64,
-          }),
-        });
+        const uploadRes = await uploadPatientDocument(patientId, noteFile);
         if (uploadRes.ok) {
           const uploadData = await uploadRes.json();
           const uploaded = (uploadData.patient?.documentos || []).slice(-1)[0];
@@ -645,12 +636,7 @@ export default function PacienteDetailPage() {
     }
     setIsUploading(true);
     try {
-      const base64 = await fileToBase64(file);
-      const res = await fetch(`/api/patients/${patientId}/documentos`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filename: file.name, contentType: file.type || 'application/octet-stream', base64 }),
-      });
+      const res = await uploadPatientDocument(patientId, file);
       if (res.ok) {
         const data = await res.json();
         setPatient(data.patient);

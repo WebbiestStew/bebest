@@ -12,7 +12,7 @@ import { hasAdminAccess } from '@/lib/roles';
 import { Patient } from '@/lib/types';
 import {
   serializeBateriaPruebas,
-  fileToBase64,
+  uploadPatientDocument,
   parsePruebaInterpretaciones,
   serializePruebaInterpretaciones,
   PruebaInterpretacion,
@@ -135,12 +135,7 @@ export default function Sesion2Page() {
     setIsUploadingResults(true);
     try {
       for (const file of resultFiles) {
-        const base64 = await fileToBase64(file);
-        await fetch(`/api/patients/${patientId}/documentos`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filename: file.name, contentType: file.type || 'application/octet-stream', base64 }),
-        });
+        await uploadPatientDocument(patientId, file);
       }
     } catch {
       window.dispatchEvent(
@@ -172,12 +167,7 @@ export default function Sesion2Page() {
       if (entry.tipo === 'texto') {
         if (entry.texto.trim()) result.push({ prueba, tipo: 'texto', texto: entry.texto.trim() });
       } else if (entry.tipo === 'archivo' && entry.file) {
-        const base64 = await fileToBase64(entry.file);
-        const res = await fetch(`/api/patients/${patientId}/documentos`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filename: entry.file.name, contentType: entry.file.type || 'application/octet-stream', base64 }),
-        });
+        const res = await uploadPatientDocument(patientId, entry.file);
         if (res.ok) {
           const data = await res.json();
           const uploaded = (data.patient?.documentos || []).slice(-1)[0];

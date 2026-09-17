@@ -405,6 +405,25 @@ export function fileToBase64(file: File): Promise<string> {
   });
 }
 
+// Shared POST to the documentos upload endpoint. Every session/registro/
+// patient-page upload flow did the same fileToBase64-then-fetch, just with
+// different surrounding state/error handling — only that repeated middle
+// step is factored out here, so callers keep their own res.ok/res.json()
+// handling exactly as before.
+export async function uploadPatientDocument(patientId: string, file: File, field?: string): Promise<Response> {
+  const base64 = await fileToBase64(file);
+  return fetch(`/api/patients/${patientId}/documentos`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      filename: file.name,
+      contentType: file.type || 'application/octet-stream',
+      base64,
+      ...(field ? { field } : {}),
+    }),
+  });
+}
+
 // Renders a react-pdf element to a real .pdf file and saves it straight to
 // the user's downloads — distinct from window.print() (which just opens the
 // browser's print dialog and relies on the person choosing "Save as PDF"

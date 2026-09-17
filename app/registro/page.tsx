@@ -9,7 +9,7 @@ import { Input, Select, Checkbox } from '@/components/FormInputs';
 import { FormPrintPreview, PreviewSection, PreviewField } from '@/components/FormPrintPreview';
 import { useAuth } from '@/lib/useAuth';
 import { hasAdminAccess } from '@/lib/roles';
-import { fileToBase64, serializeMotivoConsulta } from '@/lib/utils';
+import { uploadPatientDocument, serializeMotivoConsulta } from '@/lib/utils';
 
 const SEXO_OPTIONS = ['Masculino', 'Femenino', 'Prefiero no decirlo'];
 const ESTADO_CIVIL_OPTIONS = ['Soltero/a', 'Casado/a', 'Divorciado/a', 'Viudo/a', 'Unión Libre', 'Otros'];
@@ -312,16 +312,7 @@ export default function RegistroPage() {
 
         const uploadDoc = async (file: File) => {
           try {
-            const base64 = await fileToBase64(file);
-            await fetch(`/api/patients/${data.patient.id}/documentos`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                filename: file.name,
-                contentType: file.type || 'application/octet-stream',
-                base64,
-              }),
-            });
+            await uploadPatientDocument(data.patient.id, file);
           } catch {
             // Patient is already saved — a failed upload shouldn't block the
             // registration; the file can be added later from the patient page.
