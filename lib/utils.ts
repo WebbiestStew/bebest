@@ -356,48 +356,6 @@ export function formatDateTime(date: string | Date): string {
   });
 }
 
-// Check if patient record is complete
-export function isPatientComplete(patient: Patient): boolean {
-  const p = patient as any;
-  return !!(
-    p.dx_principal &&
-    p.plan_tratamiento &&
-    p.plan_no_suicidio &&
-    p.consentimiento_informado &&
-    p.referido_psiquiatria
-  );
-}
-
-// Get missing fields for a patient at a given stage
-export function getMissingFields(
-  patient: Patient,
-  stage: 'Primer contacto' | 'Evaluación' | 'Tratamiento'
-): string[] {
-  const missing: string[] = [];
-
-  if (stage === 'Primer contacto') {
-    if (!patient.nombre) missing.push('Nombre');
-    if (!patient.telefono) missing.push('Teléfono');
-    if (!patient.motivo_consulta) missing.push('Motivo de consulta');
-  }
-
-  if (stage === 'Evaluación') {
-    if (!patient.historia_clinica) missing.push('Historia Clínica');
-    if (!patient.bateria_pruebas) missing.push('Batería de Pruebas');
-    if (!patient.observaciones_pruebas) missing.push('Observaciones de Pruebas');
-  }
-
-  if (stage === 'Tratamiento') {
-    if (!patient.dx_principal) missing.push('Dx Principal');
-    if (!patient.plan_tratamiento) missing.push('Plan de Tratamiento');
-    if (!patient.plan_no_suicidio) missing.push('Plan de No Suicidio');
-    if (!patient.consentimiento_informado) missing.push('Consentimiento Informado');
-    if (!patient.referido_psiquiatria) missing.push('Referencia a Psiquiatría');
-  }
-
-  return missing;
-}
-
 // Delay helper (for debouncing, etc.)
 export function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
