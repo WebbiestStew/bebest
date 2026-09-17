@@ -129,7 +129,14 @@ export async function updateRecord<T>(
     );
 
     if (!response.ok) {
-      throw new Error(`Airtable API error: ${response.statusText}`);
+      // Same reasoning as createRecord below: Airtable's own error body
+      // (e.g. "Unknown field name: \"x\"") is what actually explains a
+      // failed update — the bare status text just says "Unprocessable
+      // Entity" for every distinct cause, which is useless for debugging.
+      const errorBody = await response.json().catch(() => null);
+      throw new Error(
+        errorBody?.error?.message || errorBody?.error?.type || `Airtable API error: ${response.statusText}`
+      );
     }
 
     const data = await response.json();

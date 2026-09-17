@@ -10,7 +10,13 @@ import { FormPrintPreview, PreviewSection, PreviewField } from '@/components/For
 import { useAuth } from '@/lib/useAuth';
 import { hasAdminAccess } from '@/lib/roles';
 import { Patient } from '@/lib/types';
-import { serializeBateriaPruebas, fileToBase64 } from '@/lib/utils';
+import {
+  serializeBateriaPruebas,
+  fileToBase64,
+  parsePruebaInterpretaciones,
+  serializePruebaInterpretaciones,
+  PruebaInterpretacion,
+} from '@/lib/utils';
 
 // The standard battery applied at CPCCM/bebest, per the "VI. Pruebas
 // aplicadas y resultados" section of the real Informe de Resultados —
@@ -45,6 +51,9 @@ export default function Sesion2Page() {
     terapeuta: '',
   });
   const [pruebas, setPruebas] = useState<string[]>([]);
+  const [interpretaciones, setInterpretaciones] = useState<
+    Record<string, { tipo: '' | 'archivo' | 'texto'; texto: string; file: File | null }>
+  >({});
   const [patientFull, setPatientFull] = useState<Patient | null>(null);
   const [citas, setCitas] = useState<any[]>([]);
   const [todaysCita, setTodaysCita] = useState<any>(null);
@@ -144,6 +153,41 @@ export default function Sesion2Page() {
     }
   };
 
+  const setInterpretacion = (prueba: string, patch: Partial<{ tipo: '' | 'archivo' | 'texto'; texto: string; file: File | null }>) => {
+    setInterpretaciones((prev) => {
+      const current = prev[prueba] || { tipo: '' as const, texto: '', file: null };
+      return { ...prev, [prueba]: { ...current, ...patch } };
+    });
+  };
+
+  // Uploads any file chosen per-test (into the same general documentos
+  // bucket as everything else) and assembles the final per-test
+  // interpretation array — only for tests currently checked, so unchecking
+  // a test drops whatever was entered for it.
+  const buildInterpretaciones = async (patientId: string): Promise<string> => {
+    const result: PruebaInterpretacion[] = [];
+    for (const prueba of pruebas) {
+      const entry = interpretaciones[prueba];
+      if (!entry || !entry.tipo) continue;
+      if (entry.tipo === 'texto') {
+        if (entry.texto.trim()) result.push({ prueba, tipo: 'texto', texto: entry.texto.trim() });
+      } else if (entry.tipo === 'archivo' && entry.file) {
+        const base64 = await fileToBase64(entry.file);
+        const res = await fetch(`/api/patients/${patientId}/documentos`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: entry.file.name, contentType: entry.file.type || 'application/octet-stream', base64 }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const uploaded = (data.patient?.documentos || []).slice(-1)[0];
+          if (uploaded) result.push({ prueba, tipo: 'archivo', archivo: { id: uploaded.id, filename: uploaded.filename } });
+        }
+      }
+    }
+    return serializePruebaInterpretaciones(result);
+  };
+
   // Auto-linked to today's cita (see handlePatientChange) — closing the loop
   // between the scheduled appointment and the session actually done.
   const markCitaCompleted = async () => {
@@ -162,11 +206,13 @@ export default function Sesion2Page() {
 
     setIsSubmitting(true);
     try {
+      const bateriaInterpretacionesJson = await buildInterpretaciones(formData.paciente);
       await fetch(`/api/patients?id=${formData.paciente}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           bateria_pruebas: bateriaFinal(),
+          ...(bateriaInterpretacionesJson ? { bateria_interpretaciones: bateriaInterpretacionesJson } : {}),
           observaciones_pruebas: formData.observaciones.trim(),
           ...(formData.terapeuta ? { terapeuta: formData.terapeuta } : {}),
           num_sesiones: ((patientFull as any)?.num_sesiones || 0) + 1,
@@ -206,11 +252,13 @@ export default function Sesion2Page() {
 
     setIsSubmitting(true);
     try {
+      const bateriaInterpretacionesJson = await buildInterpretaciones(formData.paciente);
       await fetch(`/api/patients?id=${formData.paciente}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           bateria_pruebas: bateriaFinal(),
+          ...(bateriaInterpretacionesJson ? { bateria_interpretaciones: bateriaInterpretacionesJson } : {}),
           observaciones_pruebas: formData.observaciones.trim(),
           ...(formData.terapeuta ? { terapeuta: formData.terapeuta } : {}),
           num_sesiones: ((patientFull as any)?.num_sesiones || 0) + 1,
@@ -253,6 +301,18 @@ export default function Sesion2Page() {
         .concat(pruebas.includes('Otra') ? [`Otra: ${formData.pruebasOtro}`] : [])
         .join(', ')
     : undefined;
+
+  const interpretacionesPreview = pruebas
+    .map((p) => {
+      const entry = interpretaciones[p];
+      if (!entry || !entry.tipo) return null;
+      const label = p === 'Otra' ? formData.pruebasOtro.trim() || 'Otra' : p;
+      if (entry.tipo === 'archivo') return entry.file ? `${label}: 📎 ${entry.file.name}` : null;
+      if (entry.tipo === 'texto') return entry.texto.trim() ? `${label}: ${entry.texto.trim()}` : null;
+      return null;
+    })
+    .filter(Boolean)
+    .join(' · ') || undefined;
 
   return (
     <div className="flex flex-col md:flex-row h-screen bg-bg">
@@ -348,6 +408,89 @@ export default function Sesion2Page() {
             )}
           </div>
 
+          {pruebas.length > 0 && (
+            <div className="space-y-3">
+              <label className="text-sm font-medium text-ink-soft block">
+                Interpretación por prueba
+                <span className="font-normal text-xs text-ink-soft ml-2">(opcional — sube el resultado o escribe tu lectura de cada una)</span>
+              </label>
+              {pruebas.map((p) => {
+                const label = p === 'Otra' ? formData.pruebasOtro.trim() || 'Otra' : p;
+                const entry = interpretaciones[p] || { tipo: '' as const, texto: '', file: null };
+                return (
+                  <div
+                    key={p}
+                    className="border border-line rounded-lg overflow-hidden animate-fade-in-up"
+                  >
+                    <div className="px-3.5 py-2.5 bg-gray-50 text-sm font-medium text-ink">{label}</div>
+                    <div className="p-3.5 space-y-3">
+                      <div>
+                        <label className="text-sm font-medium text-ink-soft mb-2 block">¿Qué quieres agregar?</label>
+                        {/* Two plain toggle buttons rather than the searchable
+                            Select component — that's built for long lists
+                            (patients, DSM codes) and looks/feels heavy for a
+                            plain either/or choice between two options. */}
+                        <div className="grid grid-cols-2 gap-2">
+                          {(
+                            [
+                              ['archivo', '📎 Subir archivo'],
+                              ['texto', '✏️ Escribir interpretación'],
+                            ] as const
+                          ).map(([value, optLabel]) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => setInterpretacion(p, { tipo: value })}
+                              className={`px-3 py-2.5 rounded-lg text-sm font-medium border transition-colors duration-150 ${
+                                entry.tipo === value
+                                  ? 'bg-sage-deep text-white border-sage-deep'
+                                  : 'border-line text-ink-soft hover:bg-sage-pale/30 hover:border-sage'
+                              }`}
+                            >
+                              {optLabel}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {/* Smooth auto-height reveal (grid-template-rows 0fr -> 1fr) rather
+                          than a hard show/hide, so switching between the two options
+                          (or picking one for the first time) feels like a real transition. */}
+                      <div
+                        className={`grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none ${
+                          entry.tipo ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+                        }`}
+                      >
+                        <div className="overflow-hidden">
+                          <div className="pt-0.5">
+                            {entry.tipo === 'archivo' && (
+                              <label className="flex items-center justify-center gap-2 px-4 py-3 border border-dashed border-line rounded-lg text-sm text-ink-soft cursor-pointer transition-colors duration-150 hover:bg-sage-pale/30 hover:border-sage">
+                                {entry.file ? `📄 ${entry.file.name}` : '📎 Elegir archivo (PDF o foto)'}
+                                <input
+                                  type="file"
+                                  accept="application/pdf,image/*"
+                                  className="hidden"
+                                  onChange={(e) => setInterpretacion(p, { file: e.target.files?.[0] || null })}
+                                />
+                              </label>
+                            )}
+                            {entry.tipo === 'texto' && (
+                              <Textarea
+                                placeholder={`Tu interpretación de ${label}…`}
+                                rows={3}
+                                value={entry.texto}
+                                onChange={(e) => setInterpretacion(p, { texto: e.target.value })}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           <Textarea
             label="Observaciones"
             placeholder="Notas sobre la aplicación de las pruebas…"
@@ -431,6 +574,7 @@ export default function Sesion2Page() {
               title: 'Pruebas aplicadas',
               fields: [
                 { label: 'Batería', value: bateriaPreview, full: true },
+                { label: 'Interpretación por prueba', value: interpretacionesPreview, full: true },
                 { label: 'Observaciones', value: formData.observaciones, full: true },
                 {
                   label: 'Archivos de resultados',
@@ -448,6 +592,7 @@ export default function Sesion2Page() {
           </PreviewSection>
           <PreviewSection title="Pruebas aplicadas">
             <PreviewField label="Batería" value={bateriaPreview} full />
+            <PreviewField label="Interpretación por prueba" value={interpretacionesPreview} full />
             <PreviewField label="Observaciones" value={formData.observaciones} full />
             <PreviewField
               label="Archivos de resultados"

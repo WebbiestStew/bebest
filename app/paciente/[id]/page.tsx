@@ -11,6 +11,7 @@ import { Patient } from '@/lib/types';
 import { Skeleton } from '@/components/Skeleton';
 import { Textarea, Input, Select } from '@/components/FormInputs';
 import { Button } from '@/components/Button';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
   fileToBase64,
   parseNotasGenerales,
@@ -103,6 +104,9 @@ export default function PacienteDetailPage() {
   const [downloadingSessionId, setDownloadingSessionId] = useState<string | null>(null);
   const [therapists, setTherapists] = useState<string[]>([]);
   const [isEditingPatient, setIsEditingPatient] = useState(false);
+  const [showReingresoPrompt, setShowReingresoPrompt] = useState(false);
+  const [showReingresoConfirm, setShowReingresoConfirm] = useState(false);
+  const [isStartingEvaluacion, setIsStartingEvaluacion] = useState(false);
   const [editFormData, setEditFormData] = useState({
     paciente: '',
     edad: '',
@@ -143,6 +147,7 @@ export default function PacienteDetailPage() {
   const handleSavePatientEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editFormData.paciente.trim()) return;
+    const wasReingreso = (patient as any)?.estatus_en_registro === 'Reingreso';
     setIsSavingPatientEdit(true);
     try {
       const res = await fetch(`/api/patients?id=${patientId}`, {
@@ -171,6 +176,12 @@ export default function PacienteDetailPage() {
         window.dispatchEvent(
           new CustomEvent('showToast', { detail: { message: 'Paciente actualizado.', isError: false } })
         );
+        // Just flipped to Reingreso (from anything else) — offer the two
+        // follow-up steps from the Re-ingreso flow: update their info, then
+        // redo the evaluation from scratch.
+        if (!wasReingreso && editFormData.estatus_en_registro === 'Reingreso') {
+          setShowReingresoPrompt(true);
+        }
       } else {
         window.dispatchEvent(
           new CustomEvent('showToast', { detail: { message: 'Error al actualizar el paciente', isError: true } })
@@ -182,6 +193,66 @@ export default function PacienteDetailPage() {
       );
     } finally {
       setIsSavingPatientEdit(false);
+    }
+  };
+
+  // "Proceso de Evaluación" for a Re-ingreso: the patient is being treated as
+  // starting over, so their previous diagnosis/plan/test results are cleared
+  // rather than left to sit alongside whatever comes out of a fresh Sesión
+  // 1/2/3 — contact info, therapist assignment, and history are untouched.
+  // fecha_ingreso is bumped to today so reportes counts them as a new intake
+  // again, matching how Re-ingreso is meant to read in the numbers.
+  const handleStartEvaluacionProceso = async () => {
+    setIsStartingEvaluacion(true);
+    try {
+      const res = await fetch(`/api/patients?id=${patientId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fecha_ingreso: new Date().toISOString().slice(0, 10),
+          etapa_actual: 'Primer contacto',
+          expediente_completo: false,
+          num_sesiones: 0,
+          num_inasistencias: 0,
+          dx_principal: '',
+          dx_principal_codigo: '',
+          dx_comorbilidad: '',
+          dx_comorbilidad_codigo: '',
+          dx_otros_problemas: '',
+          dx_otros_problemas_codigo: '',
+          dx_otros_adicionales: '',
+          plan_tratamiento: '',
+          bateria_pruebas: '',
+          // bateria_interpretaciones and psiquiatra_notas are deliberately
+          // left out here — Airtable rejects the whole update if a field
+          // name doesn't exist as a real column yet, and both are newer
+          // than the pacientes_2025_2026 schema. Nothing to actually clear
+          // on a patient who's never had that column anyway; add them back
+          // once the columns exist.
+          observaciones_pruebas: '',
+          historia_clinica: '',
+          plan_no_suicidio: false,
+          consentimiento_informado: false,
+          referido_psiquiatria: false,
+          psiquiatra_nombre: '',
+          psiquiatra_contacto: '',
+          psiquiatra_datos_pendientes: false,
+        }),
+      });
+      if (res.ok) {
+        router.push('/sesion/1');
+      } else {
+        window.dispatchEvent(
+          new CustomEvent('showToast', { detail: { message: 'Error al reiniciar el expediente', isError: true } })
+        );
+      }
+    } catch (error) {
+      window.dispatchEvent(
+        new CustomEvent('showToast', { detail: { message: 'Error al reiniciar el expediente', isError: true } })
+      );
+    } finally {
+      setIsStartingEvaluacion(false);
+      setShowReingresoConfirm(false);
     }
   };
 
@@ -807,35 +878,51 @@ export default function PacienteDetailPage() {
           </div>
         </div>
 
-        {/* Historial de sesiones */}
+        {/* Cronología de tratamiento — a session-number timeline rather than
+            the old flat reverse-chron list, so progress through treatment
+            reads at a glance. Runs oldest-to-newest (session 1 at top) since
+            that's how a chronology is actually read; the PDF export below
+            keeps sessionHistory's own newest-first order untouched. */}
         {sessionHistory.length > 0 && (
           <div
             className="bg-panel border border-line rounded-lg p-8 mb-6 animate-fade-in-up"
             style={{ animationDelay: '90ms' }}
           >
-            <div className="text-xs font-mono text-sage-deep uppercase tracking-widest mb-5">
-              Historial de sesiones
+            <div className="text-xs font-mono text-sage-deep uppercase tracking-widest mb-6">
+              Cronología de tratamiento
             </div>
-            <div className="space-y-4">
-              {sessionHistory.map((c) => (
-                <div key={c.id} className="flex gap-4 pb-4 border-b border-line last:border-0 last:pb-0">
-                  <div className="text-xs font-mono text-ink-soft shrink-0 w-24 pt-0.5">
-                    {formatDate(c.fecha)}
+            <div className="relative">
+              <div className="absolute left-4 top-4 bottom-4 w-px bg-line" aria-hidden="true" />
+              <div className="space-y-5">
+                {[...sessionHistory].reverse().map((c, i) => (
+                  <div
+                    key={c.id}
+                    className="relative flex gap-4 animate-fade-in-up"
+                    style={{ animationDelay: `${Math.min(i, 20) * 40}ms` }}
+                  >
+                    <div className="relative z-10 shrink-0 w-8 h-8 rounded-full bg-sage-deep text-white text-xs font-mono font-medium flex items-center justify-center transition-transform duration-150 hover:scale-110">
+                      {i + 1}
+                    </div>
+                    <div className="flex-1 min-w-0 pt-1 pb-0.5">
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="text-xs font-mono text-ink-soft">{formatDate(c.fecha)}</span>
+                        {isAdmin && (
+                          <button
+                            onClick={() => handleDownloadSession(c)}
+                            disabled={downloadingSessionId === c.id}
+                            className="text-xs font-medium text-sage-deep hover:underline underline-offset-2 shrink-0 disabled:opacity-50 print:hidden"
+                          >
+                            {downloadingSessionId === c.id ? 'Generando…' : '🖨️ Imprimir'}
+                          </button>
+                        )}
+                      </div>
+                      <div className="text-sm text-ink-soft">
+                        {c.notas_sesion || <span className="italic text-ink-soft/60">Sin notas</span>}
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-sm text-ink-soft flex-1">
-                    {c.notas_sesion || <span className="italic text-ink-soft/60">Sin notas</span>}
-                  </div>
-                  {isAdmin && (
-                    <button
-                      onClick={() => handleDownloadSession(c)}
-                      disabled={downloadingSessionId === c.id}
-                      className="text-xs font-medium text-sage-deep hover:underline underline-offset-2 shrink-0 disabled:opacity-50 print:hidden"
-                    >
-                      {downloadingSessionId === c.id ? 'Generando…' : '🖨️ Imprimir'}
-                    </button>
-                  )}
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -1267,6 +1354,71 @@ export default function PacienteDetailPage() {
           </form>
         </div>
       )}
+
+      {showReingresoPrompt && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink/40 backdrop-blur-sm animate-fade-in"
+          onClick={() => setShowReingresoPrompt(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="bg-panel border border-line rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4 animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div>
+              <h3 className="font-serif text-xl font-medium mb-1">Paciente marcado como Reingreso</h3>
+              <p className="text-sm text-ink-soft">
+                {(patient as any)?.paciente} vuelve a la consulta. ¿Qué quieres hacer ahora?
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowReingresoPrompt(false);
+                  startEditingPatient();
+                }}
+                className="w-full text-left px-4 py-3 rounded-lg border border-line hover:bg-sage-pale/30 hover:border-sage transition-colors duration-150"
+              >
+                <div className="text-sm font-medium text-ink">Actualizar datos</div>
+                <div className="text-xs text-ink-soft">Revisar teléfono, terapeuta, dirección, etc.</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowReingresoPrompt(false);
+                  setShowReingresoConfirm(true);
+                }}
+                className="w-full text-left px-4 py-3 rounded-lg border border-line hover:bg-sage-pale/30 hover:border-sage transition-colors duration-150"
+              >
+                <div className="text-sm font-medium text-ink">Comenzar proceso de evaluación</div>
+                <div className="text-xs text-ink-soft">Reinicia el expediente clínico y empieza Sesión 1 de nuevo.</div>
+              </button>
+            </div>
+
+            <div className="flex justify-end pt-1">
+              <Button type="button" variant="secondary" size="sm" onClick={() => setShowReingresoPrompt(false)}>
+                Ahora no
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={showReingresoConfirm}
+        title="Reiniciar expediente clínico"
+        message={`Esto borrará el diagnóstico, plan de tratamiento, pruebas aplicadas y demás datos clínicos anteriores de ${
+          (patient as any)?.paciente || 'este paciente'
+        } para empezar la evaluación desde cero. Su información de contacto y terapeuta asignado no se tocan. Esta acción no se puede deshacer.`}
+        confirmLabel="Sí, reiniciar y continuar"
+        danger
+        isLoading={isStartingEvaluacion}
+        onConfirm={handleStartEvaluacionProceso}
+        onCancel={() => setShowReingresoConfirm(false)}
+      />
 
       <Toast />
     </div>

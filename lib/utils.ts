@@ -224,6 +224,31 @@ export function serializeBateriaPruebas(items: string[]): string {
   return items.length ? JSON.stringify(items) : '';
 }
 
+// Per-test follow-up on the battery above: for each applied test, the
+// therapist can either attach a scored result file or write a short
+// interpretation directly — never both, per test. Same JSON-in-text-field
+// pattern as everything else here.
+export interface PruebaInterpretacion {
+  prueba: string;
+  tipo: 'archivo' | 'texto';
+  texto?: string;
+  archivo?: { id: string; filename: string };
+}
+
+export function parsePruebaInterpretaciones(raw?: string): PruebaInterpretacion[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function serializePruebaInterpretaciones(items: PruebaInterpretacion[]): string {
+  return items.length ? JSON.stringify(items) : '';
+}
+
 // Freeform timestamped notes on a patient's ficha (see notas_generales in
 // lib/types.ts) — same JSON-in-text-field pattern as the fields above.
 // Stored newest-first so callers don't need to re-sort on every render.

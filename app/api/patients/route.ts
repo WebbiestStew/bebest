@@ -160,7 +160,7 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     console.error('Error updating patient:', error);
     return NextResponse.json(
-      { error: 'Error al actualizar paciente' },
+      { error: (error as Error).message || 'Error al actualizar paciente' },
       { status: 500 }
     );
   }

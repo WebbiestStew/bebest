@@ -284,9 +284,9 @@ export default function Sesion3Page() {
                 psiquiatra_nombre: formData.psiquiatra_nombre.trim(),
                 psiquiatra_contacto: formData.psiquiatra_contacto.trim(),
                 psiquiatra_datos_pendientes: formData.psiquiatra_datos_pendientes,
-                psiquiatra_notas: formData.psiquiatra_notas.trim(),
               }
             : {}),
+          ...(formData.psiquiatra_notas.trim() ? { psiquiatra_notas: formData.psiquiatra_notas.trim() } : {}),
           num_sesiones: ((patientFull as any)?.num_sesiones || 0) + 1,
           etapa_actual: 'Tratamiento',
           expediente_completo: true,

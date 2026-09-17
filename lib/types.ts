@@ -83,6 +83,8 @@ export interface Patient {
   // same as the rest of that document — this just tracks which were applied.
   bateria_pruebas?: string;
   observaciones_pruebas?: string;
+  // Per-test file-or-interpretation follow-up — see PruebaInterpretacion in lib/utils.ts.
+  bateria_interpretaciones?: string;
   dx_principal?: string;
   dx_principal_codigo?: string;
   dx_comorbilidad?: string;
