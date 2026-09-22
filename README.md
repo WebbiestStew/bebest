@@ -23,7 +23,7 @@ Una aplicación web para la gestión de pacientes en consultorios de psicología
 
 ```bash
 # Clonar (o descargar)
-cd bebest
+cd consulta
 
 # Instalar dependencias
 npm install
@@ -128,13 +128,13 @@ NEXTAUTH_URL=http://localhost:3000
 
 ## 📖 Flujo de Usuarios
 
-### Admin (Fernanda)
+### Admin
 - Ver todos los pacientes
 - Crear nuevos usuarios
 - Ver alertas de expedientes incompletos
 - Acceder a todas las secciones
 
-### Psicólogo (Luis, Ana, etc.)
+### Psicólogo
 - Ver solo sus pacientes
 - Registrar nuevos pacientes (auto-asignados)
 - Capturar sesiones
@@ -143,7 +143,7 @@ NEXTAUTH_URL=http://localhost:3000
 ## 🏗️ Estructura de Carpetas
 
 ```
-bebest/
+consulta/
 ├── app/
 │   ├── api/                  # Rutas API
 │   ├── (pages)              # Páginas de la aplicación
@@ -217,11 +217,6 @@ npm run lint     # Ejecuta ESLint
 ## 📝 Licencia
 
 Interno — Solo para uso de la consulta.
-
-## 👥 Equipo
-
-Construido para BeBest by CPCCM.
--stewy
 
 ---
 
