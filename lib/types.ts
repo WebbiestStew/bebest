@@ -83,6 +83,12 @@ export interface Patient {
   // same as the rest of that document — this just tracks which were applied.
   bateria_pruebas?: string;
   observaciones_pruebas?: string;
+  // Clinical formulation fields for the Informe de Resultados (Sections IV
+  // and V of the physical document) — captured alongside the battery of
+  // tests since that's where Diego's own note grouped them, even though the
+  // physical document prints them before the tests section.
+  factores_predisponentes?: string;
+  recursos_paciente?: string;
   // Per-test file-or-interpretation follow-up — see PruebaInterpretacion in lib/utils.ts.
   bateria_interpretaciones?: string;
   dx_principal?: string;

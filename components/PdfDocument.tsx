@@ -1,4 +1,4 @@
-import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
+import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer';
 
 // A real, downloadable PDF matching the on-screen FormPrintPreview panel —
 // built with react-pdf's own primitives (not a screenshot of the DOM), so
@@ -18,8 +18,16 @@ export interface PdfSectionData {
 
 const styles = StyleSheet.create({
   page: { padding: 40, fontSize: 10, fontFamily: 'Helvetica', color: '#24312B' },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 22 },
+  headerText: { flex: 1, paddingRight: 16 },
+  logoStack: { alignItems: 'flex-end' },
+  // Fixed widths with heights matched to each file's own aspect ratio —
+  // react-pdf's Image distorts rather than auto-scaling when only one
+  // dimension is given.
+  logoBebest: { width: 90, height: 34, objectFit: 'contain' },
+  logoCpccm: { width: 90, height: 19, objectFit: 'contain', marginTop: 6 },
   title: { fontSize: 20, marginBottom: 4, fontFamily: 'Helvetica-Bold' },
-  subtitle: { fontSize: 11, color: '#5B6B62', marginBottom: 22 },
+  subtitle: { fontSize: 11, color: '#5B6B62' },
   section: { marginBottom: 16 },
   sectionTitle: {
     fontSize: 9,
@@ -71,8 +79,16 @@ export function PdfDocument({
   return (
     <Document title={title}>
       <Page size="LETTER" style={styles.page}>
-        <Text style={styles.title}>{title}</Text>
-        {subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
+        <View style={styles.header} fixed>
+          <View style={styles.headerText}>
+            <Text style={styles.title}>{title}</Text>
+            {subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
+          </View>
+          <View style={styles.logoStack}>
+            <Image src="/bebest-logo.png" style={styles.logoBebest} />
+            <Image src="/cpccm-logo.jpg" style={styles.logoCpccm} />
+          </View>
+        </View>
 
         {sections.map((section, si) => {
           const visibleFields = section.fields.filter(isVisible);

@@ -7,9 +7,11 @@ import { Toast } from '@/components/Toast';
 import { Button, BackButton } from '@/components/Button';
 import { Input, Select, Textarea, Checkbox } from '@/components/FormInputs';
 import { FormPrintPreview, PreviewSection, PreviewField } from '@/components/FormPrintPreview';
+import { PsychTestModal } from '@/components/PsychTestModal';
 import { useAuth } from '@/lib/useAuth';
 import { hasAdminAccess } from '@/lib/roles';
 import { Patient } from '@/lib/types';
+import { getPsychTest, TestResponses } from '@/lib/psychTests';
 import {
   serializeBateriaPruebas,
   uploadPatientDocument,
@@ -28,6 +30,16 @@ const PRUEBAS_OPTIONS = [
   'ISRA',
   'SCID-II',
   'Test de Creencias de Ellis',
+  // These seven also have a digitized version the app can score inline (see
+  // lib/psychTests) — "Aplicar en la app" appears as a third option for
+  // them below, alongside subir archivo / escribir interpretación.
+  'DERS — Dificultades en la Regulación Emocional',
+  'Escala de Impulsividad de Barratt (BIS-11)',
+  'Inventario de Autoestima de Coopersmith (Adultos)',
+  'COPE (Carver) — Afrontamiento al Estrés',
+  'CRI-A — Inventario de Respuestas de Afrontamiento',
+  'EHS — Escala de Habilidades Sociales',
+  'PSQ — Cuestionario de Estrés Percibido',
 ];
 
 interface FormErrors {
@@ -49,11 +61,22 @@ export default function Sesion2Page() {
     pruebasOtro: '',
     observaciones: '',
     terapeuta: '',
+    factoresPredisponentes: '',
+    recursosPaciente: '',
   });
   const [pruebas, setPruebas] = useState<string[]>([]);
   const [interpretaciones, setInterpretaciones] = useState<
-    Record<string, { tipo: '' | 'archivo' | 'texto'; texto: string; file: File | null }>
+    Record<
+      string,
+      {
+        tipo: '' | 'archivo' | 'texto' | 'estructurado';
+        texto: string;
+        file: File | null;
+        respuestas?: TestResponses;
+      }
+    >
   >({});
+  const [testModalFor, setTestModalFor] = useState<string | null>(null);
   const [patientFull, setPatientFull] = useState<Patient | null>(null);
   const [citas, setCitas] = useState<any[]>([]);
   const [todaysCita, setTodaysCita] = useState<any>(null);
@@ -148,7 +171,15 @@ export default function Sesion2Page() {
     }
   };
 
-  const setInterpretacion = (prueba: string, patch: Partial<{ tipo: '' | 'archivo' | 'texto'; texto: string; file: File | null }>) => {
+  const setInterpretacion = (
+    prueba: string,
+    patch: Partial<{
+      tipo: '' | 'archivo' | 'texto' | 'estructurado';
+      texto: string;
+      file: File | null;
+      respuestas: TestResponses;
+    }>
+  ) => {
     setInterpretaciones((prev) => {
       const current = prev[prueba] || { tipo: '' as const, texto: '', file: null };
       return { ...prev, [prueba]: { ...current, ...patch } };
@@ -172,6 +203,11 @@ export default function Sesion2Page() {
           const data = await res.json();
           const uploaded = (data.patient?.documentos || []).slice(-1)[0];
           if (uploaded) result.push({ prueba, tipo: 'archivo', archivo: { id: uploaded.id, filename: uploaded.filename } });
+        }
+      } else if (entry.tipo === 'estructurado' && entry.respuestas) {
+        const test = getPsychTest(prueba);
+        if (test) {
+          result.push({ prueba, tipo: 'estructurado', texto: entry.texto, testId: test.id, respuestas: entry.respuestas });
         }
       }
     }
@@ -205,6 +241,10 @@ export default function Sesion2Page() {
           ...(bateriaInterpretacionesJson ? { bateria_interpretaciones: bateriaInterpretacionesJson } : {}),
           observaciones_pruebas: formData.observaciones.trim(),
           ...(formData.terapeuta ? { terapeuta: formData.terapeuta } : {}),
+          ...(formData.factoresPredisponentes.trim()
+            ? { factores_predisponentes: formData.factoresPredisponentes.trim() }
+            : {}),
+          ...(formData.recursosPaciente.trim() ? { recursos_paciente: formData.recursosPaciente.trim() } : {}),
           num_sesiones: ((patientFull as any)?.num_sesiones || 0) + 1,
           expediente_completo: true,
         }),
@@ -251,6 +291,10 @@ export default function Sesion2Page() {
           ...(bateriaInterpretacionesJson ? { bateria_interpretaciones: bateriaInterpretacionesJson } : {}),
           observaciones_pruebas: formData.observaciones.trim(),
           ...(formData.terapeuta ? { terapeuta: formData.terapeuta } : {}),
+          ...(formData.factoresPredisponentes.trim()
+            ? { factores_predisponentes: formData.factoresPredisponentes.trim() }
+            : {}),
+          ...(formData.recursosPaciente.trim() ? { recursos_paciente: formData.recursosPaciente.trim() } : {}),
           num_sesiones: ((patientFull as any)?.num_sesiones || 0) + 1,
           expediente_completo: false,
         }),
@@ -299,6 +343,7 @@ export default function Sesion2Page() {
       const label = p === 'Otra' ? formData.pruebasOtro.trim() || 'Otra' : p;
       if (entry.tipo === 'archivo') return entry.file ? `${label}: 📎 ${entry.file.name}` : null;
       if (entry.tipo === 'texto') return entry.texto.trim() ? `${label}: ${entry.texto.trim()}` : null;
+      if (entry.tipo === 'estructurado') return entry.texto ? `${label}: 🧮 ${entry.texto}` : null;
       return null;
     })
     .filter(Boolean)
@@ -407,6 +452,12 @@ export default function Sesion2Page() {
               {pruebas.map((p) => {
                 const label = p === 'Otra' ? formData.pruebasOtro.trim() || 'Otra' : p;
                 const entry = interpretaciones[p] || { tipo: '' as const, texto: '', file: null };
+                const digitizedTest = getPsychTest(p);
+                const toggleOptions: [typeof entry.tipo, string][] = [
+                  ['archivo', '📎 Subir archivo'],
+                  ['texto', '✏️ Escribir interpretación'],
+                  ...(digitizedTest ? ([['estructurado', '🧮 Aplicar en la app']] as [typeof entry.tipo, string][]) : []),
+                ];
                 return (
                   <div
                     key={p}
@@ -416,21 +467,19 @@ export default function Sesion2Page() {
                     <div className="p-3.5 space-y-3">
                       <div>
                         <label className="text-sm font-medium text-ink-soft mb-2 block">¿Qué quieres agregar?</label>
-                        {/* Two plain toggle buttons rather than the searchable
+                        {/* Plain toggle buttons rather than the searchable
                             Select component — that's built for long lists
                             (patients, DSM codes) and looks/feels heavy for a
-                            plain either/or choice between two options. */}
-                        <div className="grid grid-cols-2 gap-2">
-                          {(
-                            [
-                              ['archivo', '📎 Subir archivo'],
-                              ['texto', '✏️ Escribir interpretación'],
-                            ] as const
-                          ).map(([value, optLabel]) => (
+                            plain either/or/or choice between a couple of options. */}
+                        <div className={`grid gap-2 ${toggleOptions.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                          {toggleOptions.map(([value, optLabel]) => (
                             <button
                               key={value}
                               type="button"
-                              onClick={() => setInterpretacion(p, { tipo: value })}
+                              onClick={() => {
+                                setInterpretacion(p, { tipo: value });
+                                if (value === 'estructurado') setTestModalFor(p);
+                              }}
                               className={`px-3 py-2.5 rounded-lg text-sm font-medium border transition-colors duration-150 ${
                                 entry.tipo === value
                                   ? 'bg-sage-deep text-white border-sage-deep'
@@ -471,6 +520,20 @@ export default function Sesion2Page() {
                                 onChange={(e) => setInterpretacion(p, { texto: e.target.value })}
                               />
                             )}
+                            {entry.tipo === 'estructurado' && (
+                              <div className="flex items-start justify-between gap-3 px-3.5 py-3 bg-sage-pale/30 border border-sage/30 rounded-lg">
+                                <p className="text-sm text-ink flex-1">
+                                  {entry.texto || 'Sin respuestas capturadas aún.'}
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => setTestModalFor(p)}
+                                  className="text-xs font-medium text-sage-deep hover:underline underline-offset-2 shrink-0"
+                                >
+                                  Editar respuestas
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -480,6 +543,20 @@ export default function Sesion2Page() {
               })}
             </div>
           )}
+
+          <Textarea
+            label="Factores predisponentes o de vulnerabilidad"
+            placeholder="Ej. años en el mismo puesto realizando múltiples tareas…"
+            value={formData.factoresPredisponentes}
+            onChange={(e) => setFormData({ ...formData, factoresPredisponentes: e.target.value })}
+          />
+
+          <Textarea
+            label="Recursos del paciente para hacer frente al problema"
+            placeholder="Ej. buena capacidad intelectual, capacidad de adaptación…"
+            value={formData.recursosPaciente}
+            onChange={(e) => setFormData({ ...formData, recursosPaciente: e.target.value })}
+          />
 
           <Textarea
             label="Observaciones"
@@ -565,6 +642,8 @@ export default function Sesion2Page() {
               fields: [
                 { label: 'Batería', value: bateriaPreview, full: true },
                 { label: 'Interpretación por prueba', value: interpretacionesPreview, full: true },
+                { label: 'Factores predisponentes o de vulnerabilidad', value: formData.factoresPredisponentes, full: true },
+                { label: 'Recursos del paciente', value: formData.recursosPaciente, full: true },
                 { label: 'Observaciones', value: formData.observaciones, full: true },
                 {
                   label: 'Archivos de resultados',
@@ -583,6 +662,8 @@ export default function Sesion2Page() {
           <PreviewSection title="Pruebas aplicadas">
             <PreviewField label="Batería" value={bateriaPreview} full />
             <PreviewField label="Interpretación por prueba" value={interpretacionesPreview} full />
+            <PreviewField label="Factores predisponentes o de vulnerabilidad" value={formData.factoresPredisponentes} full />
+            <PreviewField label="Recursos del paciente" value={formData.recursosPaciente} full />
             <PreviewField label="Observaciones" value={formData.observaciones} full />
             <PreviewField
               label="Archivos de resultados"
@@ -593,6 +674,24 @@ export default function Sesion2Page() {
         </FormPrintPreview>
         </div>
       </main>
+
+      {testModalFor &&
+        (() => {
+          const test = getPsychTest(testModalFor);
+          if (!test) return null;
+          const entry = interpretaciones[testModalFor];
+          return (
+            <PsychTestModal
+              test={test}
+              initialResponses={entry?.respuestas}
+              onClose={() => setTestModalFor(null)}
+              onSave={(respuestas, summary) => {
+                setInterpretacion(testModalFor, { tipo: 'estructurado', respuestas, texto: summary });
+                setTestModalFor(null);
+              }}
+            />
+          );
+        })()}
 
       <Toast />
     </div>

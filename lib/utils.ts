@@ -225,14 +225,23 @@ export function serializeBateriaPruebas(items: string[]): string {
 }
 
 // Per-test follow-up on the battery above: for each applied test, the
-// therapist can either attach a scored result file or write a short
-// interpretation directly — never both, per test. Same JSON-in-text-field
-// pattern as everything else here.
+// therapist can attach a scored result file, write a short interpretation
+// directly, or — for tests the app knows how to score itself (see
+// lib/psychTests) — fill it out in the app and get the breakdown computed
+// automatically. Never more than one of these per test. Same
+// JSON-in-text-field pattern as everything else here.
+//
+// 'estructurado' keeps both the raw answers (respuestas, itemId -> chosen
+// option index) so the form can be reopened/edited later, and a plain-text
+// resumen so every existing consumer of .texto (PDF export, the Sesión 2
+// preview line) already renders it correctly with zero changes.
 export interface PruebaInterpretacion {
   prueba: string;
-  tipo: 'archivo' | 'texto';
+  tipo: 'archivo' | 'texto' | 'estructurado';
   texto?: string;
   archivo?: { id: string; filename: string };
+  testId?: string;
+  respuestas?: Record<number, number>;
 }
 
 export function parsePruebaInterpretaciones(raw?: string): PruebaInterpretacion[] {

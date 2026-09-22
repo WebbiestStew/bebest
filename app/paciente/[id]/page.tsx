@@ -20,10 +20,12 @@ import {
   parseDxAdicionales,
   parseMotivoConsulta,
   parseBateriaPruebas,
+  parsePruebaInterpretaciones,
   downloadPdf,
   deleteWithUndo,
 } from '@/lib/utils';
 import { PdfDocument, PdfSectionData } from '@/components/PdfDocument';
+import { PsychTestResultsSection } from '@/components/PsychTestResultsSection';
 
 const estadoLabel: Record<string, string> = {
   ACTIVO: 'Activo',
@@ -101,6 +103,7 @@ export default function PacienteDetailPage() {
   const [isAddingNote, setIsAddingNote] = useState(false);
   const [isDownloadingBrief, setIsDownloadingBrief] = useState(false);
   const [isDownloadingExpediente, setIsDownloadingExpediente] = useState(false);
+  const [isDownloadingInforme, setIsDownloadingInforme] = useState(false);
   const [downloadingSessionId, setDownloadingSessionId] = useState<string | null>(null);
   const [therapists, setTherapists] = useState<string[]>([]);
   const [isEditingPatient, setIsEditingPatient] = useState(false);
@@ -627,6 +630,51 @@ export default function PacienteDetailPage() {
     }
   };
 
+  // The real "Informe de Resultados de Evaluación Psicológica" the clinic
+  // hands to patients/insurers — matches the physical CPCCM letterhead
+  // section-for-section (I-VIII). Everything it needs already lives on this
+  // one Patient record (Sesión 1's historia, Sesión 2's pruebas +
+  // factores/recursos, Sesión 3's diagnóstico + plan) — same assembly-not-
+  // collection pattern as the expediente above.
+  const handleDownloadInforme = async () => {
+    if (!patient) return;
+    setIsDownloadingInforme(true);
+    try {
+      const p = patient as any;
+      const { InformeResultadosDocument } = await import('@/components/InformeResultadosDocument');
+      await downloadPdf(
+        <InformeResultadosDocument
+          data={{
+            nombre: p.paciente,
+            fecha: new Date().toLocaleDateString('es-MX', { dateStyle: 'long' }),
+            edad: p.edad,
+            sexo: p.sexo,
+            estadoCivil: p.estado_civil,
+            ocupacion: p.ocupacion,
+            motivoConsulta: parseMotivoConsulta(p.motivo_consulta),
+            historiaProblema: p.historia_clinica,
+            factoresPredisponentes: p.factores_predisponentes,
+            recursosPaciente: p.recursos_paciente,
+            pruebas: parsePruebaInterpretaciones(p.bateria_interpretaciones),
+            dxPrincipal: { nombre: p.dx_principal, codigo: p.dx_principal_codigo },
+            dxComorbilidad: { nombre: p.dx_comorbilidad, codigo: p.dx_comorbilidad_codigo },
+            dxOtros: { nombre: p.dx_otros_problemas, codigo: p.dx_otros_problemas_codigo },
+            dxAdicionales: parseDxAdicionales(p.dx_otros_adicionales),
+            planTratamiento: parsePlanTratamiento(p.plan_tratamiento),
+          }}
+        />,
+        `informe-de-resultados-${p.paciente || 'paciente'}`
+      );
+    } catch (error) {
+      console.error('Error generating informe PDF:', error);
+      window.dispatchEvent(
+        new CustomEvent('showToast', { detail: { message: 'Error al generar el PDF', isError: true } })
+      );
+    } finally {
+      setIsDownloadingInforme(false);
+    }
+  };
+
   const handleFileUpload = async (file: File) => {
     if (file.size > 15 * 1024 * 1024) {
       window.dispatchEvent(
@@ -820,6 +868,15 @@ export default function PacienteDetailPage() {
                 >
                   📁 Expediente completo (PDF)
                 </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleDownloadInforme}
+                  disabled={isDownloadingInforme}
+                  isLoading={isDownloadingInforme}
+                >
+                  🧾 Informe de Resultados (PDF)
+                </Button>
               </>
             )}
           </div>
@@ -891,7 +948,10 @@ export default function PacienteDetailPage() {
                     </div>
                     <div className="flex-1 min-w-0 pt-1 pb-0.5">
                       <div className="flex items-center justify-between gap-2 mb-1">
-                        <span className="text-xs font-mono text-ink-soft">{formatDate(c.fecha)}</span>
+                        <span className="text-xs font-mono text-ink-soft">
+                          {formatDate(c.fecha)}
+                          {c.terapeuta && <span className="text-ink-soft/70"> · {c.terapeuta}</span>}
+                        </span>
                         {isAdmin && (
                           <button
                             onClick={() => handleDownloadSession(c)}
@@ -1117,6 +1177,8 @@ export default function PacienteDetailPage() {
               )}
           </div>
         </div>
+
+        <PsychTestResultsSection items={parsePruebaInterpretaciones(p.bateria_interpretaciones)} patientId={patientId} />
 
         {/* File attachments */}
         <div
