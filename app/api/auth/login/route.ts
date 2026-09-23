@@ -6,10 +6,12 @@ import { sendTwoFactorCode } from '@/lib/email';
 import { checkRateLimit, recordFailedLogin, clearRateLimit } from '@/lib/rateLimit';
 import { reportServerError } from '@/lib/errorMonitor';
 
-// 2FA is gated behind an env var rather than always-on: until bebest.com is
-// verified as a sending domain, Resend can only deliver to one sandboxed
-// test address (see lib/email.ts), which would lock every real user out of
-// login if this were required unconditionally right now.
+// 2FA is gated behind an env var rather than always-on: the hardcoded admin
+// account (lib/auth.ts HARDCODED_ADMIN) logs in as diego@bebest.com, and
+// that address doesn't receive mail anywhere — turning this on unconditionally
+// would lock that account out on its own login code. Leave off until either
+// HARDCODED_ADMIN.email points at a real inbox or diego@bebest.com forwards
+// there (see lib/email.ts sendTwoFactorCode for the same note).
 const REQUIRE_2FA = process.env.REQUIRE_2FA === 'true';
 
 export async function POST(req: NextRequest) {

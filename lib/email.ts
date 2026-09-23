@@ -3,7 +3,12 @@ import { findRecords } from '@/lib/airtable';
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-const HARDCODED_ADMIN_EMAIL = 'diego@bebest.com';
+// This is the notification recipient, not a login credential — unrelated to
+// HARDCODED_ADMIN.email in lib/auth.ts (diego@bebest.com), which is the
+// login identifier and doesn't actually receive mail anywhere. Kept as
+// Diego's real inbox instead, so admin notifications (alerts, sugerencias)
+// have somewhere to actually land now that ALERT_SANDBOX_RECIPIENT is gone.
+const HARDCODED_ADMIN_EMAIL = 'dvillarreal@bebest.mx';
 
 // Shared visual shell for every outbound email — matches the app's actual
 // palette (tailwind.config.js) and serif/sans pairing instead of the
@@ -71,21 +76,13 @@ interface AlertEmailInput {
   pasoIncompleto: string;
   usuarioNombre: string;
   // The assigned therapist's own email, when known — added to the admin
-  // recipient list so they hear about it too, not just admins. Ignored while
-  // ALERT_SANDBOX_RECIPIENT is set (see note below).
+  // recipient list so they hear about it too, not just admins.
   terapeutaEmail?: string;
 }
 
 // Fires when a new alert is created (no-show streak, missing intake step,
 // etc). Best-effort: a missing API key or a send failure is logged and
 // swallowed rather than blocking the alert itself from being created.
-//
-// NOTE: until bebest.com is verified as a sending domain in Resend, the
-// account is sandboxed — Resend will only deliver to the single address the
-// account was signed up with, and rejects the whole send if any other
-// address is in `to`. ALERT_SANDBOX_RECIPIENT overrides the real admin list
-// with just that address for as long as we're sandboxed; remove the env var
-// once the domain is verified so real admins start receiving alerts again.
 export async function sendAlertEmail(alert: AlertEmailInput): Promise<boolean> {
   if (!resend) {
     console.warn('RESEND_API_KEY not set — skipping alert email');
@@ -93,9 +90,7 @@ export async function sendAlertEmail(alert: AlertEmailInput): Promise<boolean> {
   }
 
   try {
-    const to = process.env.ALERT_SANDBOX_RECIPIENT
-      ? [process.env.ALERT_SANDBOX_RECIPIENT]
-      : Array.from(new Set([...(await getAdminEmails()), ...(alert.terapeutaEmail ? [alert.terapeutaEmail] : [])]));
+    const to = Array.from(new Set([...(await getAdminEmails()), ...(alert.terapeutaEmail ? [alert.terapeutaEmail] : [])]));
     if (to.length === 0) return false;
 
     const { error } = await resend.emails.send({
@@ -145,8 +140,8 @@ interface SugerenciaEmailInput {
 }
 
 // Fires when someone submits a new sugerencia, so admins don't have to keep
-// checking the page for new ones. Same best-effort/sandbox caveats as
-// sendAlertEmail above.
+// checking the page for new ones. Same best-effort caveat as sendAlertEmail
+// above.
 export async function sendSugerenciaEmail(input: SugerenciaEmailInput): Promise<boolean> {
   if (!resend) {
     console.warn('RESEND_API_KEY not set — skipping sugerencia email');
@@ -154,9 +149,7 @@ export async function sendSugerenciaEmail(input: SugerenciaEmailInput): Promise<
   }
 
   try {
-    const to = process.env.ALERT_SANDBOX_RECIPIENT
-      ? [process.env.ALERT_SANDBOX_RECIPIENT]
-      : await getAdminEmails();
+    const to = await getAdminEmails();
     if (to.length === 0) return false;
 
     const { error } = await resend.emails.send({
@@ -193,12 +186,12 @@ export async function sendSugerenciaEmail(input: SugerenciaEmailInput): Promise<
   }
 }
 
-// Sends a 2FA one-time code to the account's own login email. Same sandbox
-// caveat as sendAlertEmail: while bebest.com isn't a verified sending domain,
-// Resend rejects delivery to anything but the address the Resend account was
-// signed up with — ALERT_SANDBOX_RECIPIENT overrides the destination the same
-// way, meaning every login's code currently lands in one test inbox rather
-// than the actual account holder's, regardless of whose account is logging in.
+// Sends a 2FA one-time code to the account's own login email. Delivery
+// itself is unrestricted now that bebest.com is a verified sending domain —
+// but REQUIRE_2FA stays off regardless (see app/api/auth/login/route.ts):
+// the hardcoded admin account logs in as diego@bebest.com, and that address
+// doesn't receive mail anywhere, so turning 2FA on would lock that account
+// out on its own login code.
 export async function sendTwoFactorCode(to: string, nombre: string, code: string): Promise<boolean> {
   if (!resend) {
     console.warn('RESEND_API_KEY not set — skipping 2FA email');
@@ -206,11 +199,9 @@ export async function sendTwoFactorCode(to: string, nombre: string, code: string
   }
 
   try {
-    const recipient = process.env.ALERT_SANDBOX_RECIPIENT || to;
-
     const { error } = await resend.emails.send({
       from: process.env.ALERT_EMAIL_FROM || 'Consulta <onboarding@resend.dev>',
-      to: [recipient],
+      to: [to],
       subject: `Tu código de acceso: ${code}`,
       html: emailLayout({
         eyebrow: 'Código de acceso',
@@ -238,7 +229,6 @@ export async function sendTwoFactorCode(to: string, nombre: string, code: string
 }
 
 // Fires the day before a scheduled cita (see app/api/cron/reminders/route.ts).
-// Same sandbox caveat as the other send functions above.
 export async function sendAppointmentReminderEmail(input: {
   to: string;
   pacienteNombre: string;
@@ -252,7 +242,6 @@ export async function sendAppointmentReminderEmail(input: {
   }
 
   try {
-    const recipient = process.env.ALERT_SANDBOX_RECIPIENT || input.to;
     const fechaFormateada = new Date(input.fecha).toLocaleDateString('es-MX', {
       weekday: 'long',
       day: 'numeric',
@@ -262,7 +251,7 @@ export async function sendAppointmentReminderEmail(input: {
 
     const { error } = await resend.emails.send({
       from: process.env.ALERT_EMAIL_FROM || 'Consulta <onboarding@resend.dev>',
-      to: [recipient],
+      to: [input.to],
       subject: `Recordatorio: tu cita mañana a las ${input.hora}`,
       html: emailLayout({
         eyebrow: 'Recordatorio de cita',
@@ -303,7 +292,6 @@ export async function sendAppointmentReminderEmail(input: {
   }
 }
 
-// Same sandbox caveat as the other two send functions above.
 export async function sendPasswordResetEmail(to: string, nombre: string, resetUrl: string): Promise<boolean> {
   if (!resend) {
     console.warn('RESEND_API_KEY not set — skipping password reset email');
@@ -311,11 +299,9 @@ export async function sendPasswordResetEmail(to: string, nombre: string, resetUr
   }
 
   try {
-    const recipient = process.env.ALERT_SANDBOX_RECIPIENT || to;
-
     const { error } = await resend.emails.send({
       from: process.env.ALERT_EMAIL_FROM || 'Consulta <onboarding@resend.dev>',
-      to: [recipient],
+      to: [to],
       subject: 'Restablece tu contraseña',
       html: emailLayout({
         eyebrow: 'Restablecer contraseña',
