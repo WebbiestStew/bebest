@@ -22,6 +22,7 @@ const ALLOWED_FIELDS = [
   'documentos_trabajo',
   'documentos_sesiones',
   'documentos_altas_bajas',
+  'informe_resultados_1era_vez',
 ] as const;
 type AllowedField = (typeof ALLOWED_FIELDS)[number];
 

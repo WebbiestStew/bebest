@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { Button } from './Button';
+import { Textarea } from './FormInputs';
 import { SubscaleBars } from './charts/SubscaleBars';
 import { PsychTestDefinition, TestResponses, scoreTest } from '@/lib/psychTests';
 
@@ -13,15 +14,18 @@ import { PsychTestDefinition, TestResponses, scoreTest } from '@/lib/psychTests'
 export function PsychTestModal({
   test,
   initialResponses,
+  initialNotas,
   onSave,
   onClose,
 }: {
   test: PsychTestDefinition;
   initialResponses?: TestResponses;
-  onSave: (responses: TestResponses, summary: string) => void;
+  initialNotas?: string;
+  onSave: (responses: TestResponses, summary: string, notas: string) => void;
   onClose: () => void;
 }) {
   const [responses, setResponses] = useState<TestResponses>(initialResponses || {});
+  const [notas, setNotas] = useState(initialNotas || '');
 
   const result = useMemo(() => scoreTest(test, responses), [test, responses]);
   const answeredCount = test.items.filter((i) => responses[i.id] !== undefined).length;
@@ -87,11 +91,18 @@ export function PsychTestModal({
           {!result.complete && (
             <p className="text-xs text-clay">Faltan respuestas — puedes guardar de todas formas y completarla después.</p>
           )}
+          <Textarea
+            label="Notas sobre esta prueba o el paciente (opcional)"
+            placeholder="ej. contestó muy rápido, se notó incómodo con las preguntas de familia…"
+            rows={2}
+            value={notas}
+            onChange={(e) => setNotas(e.target.value)}
+          />
           <div className="flex items-center gap-3 justify-end">
             <Button variant="secondary" size="sm" onClick={onClose}>
               Cancelar
             </Button>
-            <Button variant="primary" size="sm" onClick={() => onSave(responses, result.summary)}>
+            <Button variant="primary" size="sm" onClick={() => onSave(responses, result.summary, notas.trim())}>
               Guardar
             </Button>
           </div>

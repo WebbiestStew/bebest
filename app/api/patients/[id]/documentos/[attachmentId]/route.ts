@@ -48,6 +48,7 @@ export async function GET(
       ...(patientAny.documentos_trabajo || []),
       ...(patientAny.documentos_sesiones || []),
       ...(patientAny.documentos_altas_bajas || []),
+      ...(patientAny.informe_resultados_1era_vez || []),
     ].find((d: any) => d.id === params.attachmentId);
     if (!doc) {
       return NextResponse.json({ error: 'Documento no encontrado' }, { status: 404 });

@@ -110,6 +110,14 @@ export interface Patient {
   // admission. dx_principal etc. always reflect the CURRENT admission's
   // diagnosis (whichever number that is); this holds the original one.
   dx_1era_vez?: string;
+  // The real Informe de Resultados PDF, rendered and saved automatically the
+  // moment a Re-ingreso resets the fields it's built from (see
+  // app/paciente/[id]/page.tsx handleStartEvaluacionProceso) — a frozen copy
+  // of what that admission's informe actually looked like, since the
+  // Informe de Resultados button only ever generates from CURRENT data.
+  // Accumulates one entry per Re-ingreso, unlike dx_1era_vez which only
+  // keeps the first.
+  informe_resultados_1era_vez?: { id: string; url: string; filename: string; size: number; type: string }[];
   // JSON-serialized PlanObjetivo[] (see lib/utils.ts) — the real form is a
   // table of numbered objetivos each paired with técnicas, not a paragraph.
   // Stored as a string because Airtable has no array-of-objects field type.

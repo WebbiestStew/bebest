@@ -7,6 +7,8 @@ import { criA } from './definitions/criA';
 import { ehs } from './definitions/ehs';
 import { ellis } from './definitions/ellis';
 import { psq } from './definitions/psq';
+import { scidII } from './definitions/scidII';
+import { isra } from './definitions/isra';
 
 export * from './types';
 export { scoreTest } from './scoring';
@@ -23,6 +25,8 @@ export const PSYCH_TESTS: Record<string, PsychTestDefinition> = {
   'EHS — Escala de Habilidades Sociales': ehs,
   'Test de Creencias de Ellis': ellis,
   'PSQ — Cuestionario de Estrés Percibido': psq,
+  'SCID-II': scidII,
+  ISRA: isra,
 };
 
 export function getPsychTest(pruebaLabel: string): PsychTestDefinition | undefined {

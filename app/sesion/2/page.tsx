@@ -73,6 +73,7 @@ export default function Sesion2Page() {
         texto: string;
         file: File | null;
         respuestas?: TestResponses;
+        notas?: string;
       }
     >
   >({});
@@ -178,6 +179,7 @@ export default function Sesion2Page() {
       texto: string;
       file: File | null;
       respuestas: TestResponses;
+      notas: string;
     }>
   ) => {
     setInterpretaciones((prev) => {
@@ -207,7 +209,14 @@ export default function Sesion2Page() {
       } else if (entry.tipo === 'estructurado' && entry.respuestas) {
         const test = getPsychTest(prueba);
         if (test) {
-          result.push({ prueba, tipo: 'estructurado', texto: entry.texto, testId: test.id, respuestas: entry.respuestas });
+          result.push({
+            prueba,
+            tipo: 'estructurado',
+            texto: entry.texto,
+            testId: test.id,
+            respuestas: entry.respuestas,
+            ...(entry.notas?.trim() ? { notas: entry.notas.trim() } : {}),
+          });
         }
       }
     }
@@ -686,9 +695,10 @@ export default function Sesion2Page() {
             <PsychTestModal
               test={test}
               initialResponses={entry?.respuestas}
+              initialNotas={entry?.notas}
               onClose={() => setTestModalFor(null)}
-              onSave={(respuestas, summary) => {
-                setInterpretacion(testModalFor, { tipo: 'estructurado', respuestas, texto: summary });
+              onSave={(respuestas, summary, notas) => {
+                setInterpretacion(testModalFor, { tipo: 'estructurado', respuestas, texto: summary, notas });
                 setTestModalFor(null);
               }}
             />

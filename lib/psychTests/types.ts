@@ -28,6 +28,11 @@ export interface TestSubscale {
   transform?: { mean: number; sd: number };
   highText?: string;
   lowText?: string;
+  // Per-subscale override for PsychTestDefinition.bands below — SCID-II
+  // needs this since each of its 12 styles has its own DSM-criteria cutoff
+  // (e.g. Avoidant needs >4 of 7, Dependent needs >5 of 8), not a shared
+  // percent-of-range scheme every other digitized test here uses.
+  bands?: ScoreBand[];
 }
 
 export interface ScoreBand {

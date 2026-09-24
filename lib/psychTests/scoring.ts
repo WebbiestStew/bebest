@@ -11,7 +11,8 @@ function scoreSubscale(def: PsychTestDefinition, sub: TestSubscale, responses: T
   }
   const range = sub.max - sub.min;
   const percent = range > 0 ? (raw - sub.min) / range : 0;
-  const band = def.bands ? pickBand(def.bands, percent) : undefined;
+  const bands = sub.bands || def.bands;
+  const band = bands ? pickBand(bands, percent) : undefined;
   const tScore = sub.transform ? (raw - sub.transform.mean) / sub.transform.sd * 10 + 50 : undefined;
   return {
     id: sub.id,

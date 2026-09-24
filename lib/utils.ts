@@ -274,6 +274,13 @@ export interface PruebaInterpretacion {
   archivo?: { id: string; filename: string };
   testId?: string;
   respuestas?: Record<number, number>;
+  // Freeform, optional — the therapist's own observations about the test or
+  // the patient while taking it (mood, honesty, anything odd about how they
+  // answered), separate from `texto` above, which is the auto-computed
+  // score summary for 'estructurado' and the interpretation itself for
+  // 'texto'. Only offered for 'estructurado' tests, where finishing inside
+  // the app leaves no other place to jot this down.
+  notas?: string;
 }
 
 export function parsePruebaInterpretaciones(raw?: string): PruebaInterpretacion[] {
@@ -432,9 +439,10 @@ export function sanitize(input: string): string {
     .replace(/'/g, '&#039;');
 }
 
-// Reads a File into a base64 string (no data: URL prefix), for the
-// documentos upload endpoint, which expects raw base64.
-export function fileToBase64(file: File): Promise<string> {
+// Reads a File (or any Blob, e.g. a react-pdf-rendered PDF) into a base64
+// string (no data: URL prefix), for the documentos upload endpoint, which
+// expects raw base64.
+export function fileToBase64(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -481,6 +489,16 @@ export async function downloadPdf(doc: ReactElement, filename: string): Promise<
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+// Same react-pdf render as downloadPdf, but returns the bytes as base64
+// instead of triggering a browser download — for archiving a snapshot PDF
+// straight into a patient's documentos (see Re-ingreso in
+// app/paciente/[id]/page.tsx) rather than handing it to the person.
+export async function renderPdfToBase64(doc: ReactElement): Promise<string> {
+  const { pdf } = await import('@react-pdf/renderer');
+  const blob = await pdf(doc as any).toBlob();
+  return fileToBase64(blob);
 }
 
 // Get initials from name

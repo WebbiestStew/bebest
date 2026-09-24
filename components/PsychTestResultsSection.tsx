@@ -55,6 +55,12 @@ export function PsychTestResultsSection({
                   ) : (
                     item.texto && <p className="text-sm text-ink leading-relaxed">{item.texto}</p>
                   ))}
+                {item.notas && (
+                  <div className="mt-3 pt-3 border-t border-line">
+                    <div className="text-xs text-ink-soft uppercase tracking-wider mb-1">Notas</div>
+                    <p className="text-sm text-ink-soft leading-relaxed">{item.notas}</p>
+                  </div>
+                )}
               </div>
             </div>
           );

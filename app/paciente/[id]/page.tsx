@@ -24,6 +24,7 @@ import {
   parseDxSnapshot,
   serializeDxSnapshot,
   downloadPdf,
+  renderPdfToBase64,
   deleteWithUndo,
 } from '@/lib/utils';
 import { PdfDocument, PdfSectionData } from '@/components/PdfDocument';
@@ -220,16 +221,21 @@ export default function PacienteDetailPage() {
   // outgoing diagnosis is archived into dx_1era_vez (see lib/utils.ts
   // DxSnapshot) right before being cleared, so "Dx. 1ª vez" stays visible on
   // the ficha even after the fields below are wiped for the new admission.
+  // The outgoing Informe de Resultados is archived too — as an actual
+  // rendered PDF (not just data), since that PDF only ever generates from
+  // CURRENT fields and would otherwise be unrecoverable once this admission's
+  // data is cleared below.
   const handleStartEvaluacionProceso = async () => {
     setIsStartingEvaluacion(true);
     try {
       const p = patient as any;
+      const huboDiagnostico = p?.dx_principal || p?.dx_comorbilidad || p?.dx_otros_problemas;
       // Freeze the outgoing diagnosis before it's cleared below — but only on
       // the FIRST Re-ingreso. A second/third Re-ingreso would otherwise
       // overwrite the true original diagnosis with whatever the most recent
       // admission's turned out to be.
       const dxSnapshot =
-        !p?.dx_1era_vez && (p?.dx_principal || p?.dx_comorbilidad || p?.dx_otros_problemas)
+        !p?.dx_1era_vez && huboDiagnostico
           ? serializeDxSnapshot({
               principal: p.dx_principal,
               principalCodigo: p.dx_principal_codigo,
@@ -240,6 +246,50 @@ export default function PacienteDetailPage() {
               otrosAdicionales: parseDxAdicionales(p.dx_otros_adicionales),
             })
           : undefined;
+
+      // Best-effort: archiving the old informe shouldn't block the Re-ingreso
+      // reset itself if PDF rendering or the upload fails for some reason.
+      if (huboDiagnostico) {
+        try {
+          const { InformeResultadosDocument } = await import('@/components/InformeResultadosDocument');
+          const base64 = await renderPdfToBase64(
+            <InformeResultadosDocument
+              data={{
+                nombre: p.paciente,
+                fecha: p.fecha_informe_completado
+                  ? new Date(p.fecha_informe_completado).toLocaleDateString('es-MX', { dateStyle: 'long', timeZone: 'UTC' })
+                  : new Date().toLocaleDateString('es-MX', { dateStyle: 'long' }),
+                edad: p.edad,
+                sexo: p.sexo,
+                estadoCivil: p.estado_civil,
+                ocupacion: p.ocupacion,
+                motivoConsulta: parseMotivoConsulta(p.motivo_consulta),
+                historiaProblema: p.historia_clinica,
+                factoresPredisponentes: p.factores_predisponentes,
+                recursosPaciente: p.recursos_paciente,
+                pruebas: parsePruebaInterpretaciones(p.bateria_interpretaciones),
+                dxPrincipal: { nombre: p.dx_principal, codigo: p.dx_principal_codigo },
+                dxComorbilidad: { nombre: p.dx_comorbilidad, codigo: p.dx_comorbilidad_codigo },
+                dxOtros: { nombre: p.dx_otros_problemas, codigo: p.dx_otros_problemas_codigo },
+                dxAdicionales: parseDxAdicionales(p.dx_otros_adicionales),
+                planTratamiento: parsePlanTratamiento(p.plan_tratamiento),
+              }}
+            />
+          );
+          await fetch(`/api/patients/${patientId}/documentos`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              filename: `informe-de-resultados-${(p.fecha_ingreso || '').slice(0, 10) || 'anterior'}-${p.paciente || 'paciente'}.pdf`,
+              contentType: 'application/pdf',
+              base64,
+              field: 'informe_resultados_1era_vez',
+            }),
+          });
+        } catch (archiveError) {
+          console.error('Error archiving previous informe:', archiveError);
+        }
+      }
 
       const res = await fetch(`/api/patients?id=${patientId}`, {
         method: 'PUT',
@@ -1313,6 +1363,26 @@ export default function PacienteDetailPage() {
               </div>
             );
           })()}
+          {(p.informe_resultados_1era_vez || []).length > 0 && (
+            <div className="mt-6 pt-5 border-t border-line">
+              <label className="text-xs text-ink-soft uppercase tracking-wider">
+                Informes de Resultados anteriores (Re-ingresos)
+              </label>
+              <div className="mt-2 space-y-1.5">
+                {(p.informe_resultados_1era_vez || []).map((doc: any) => (
+                  <a
+                    key={doc.id}
+                    href={`/api/patients/${patientId}/documentos/${doc.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-sm text-sage-deep hover:underline underline-offset-2"
+                  >
+                    🧾 {doc.filename}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Documents */}
