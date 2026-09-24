@@ -66,6 +66,7 @@ export async function POST(request: NextRequest) {
       Rol: body.rol || 'user',
       ...(body.escuela ? { Escuela: body.escuela } : {}),
       ...(body.generacion ? { Generacion: body.generacion } : {}),
+      ...(body.telefono ? { Telefono: body.telefono } : {}),
     });
     const { Password_hash, ...sanitizedUser } = newUser;
 
@@ -118,6 +119,7 @@ export async function PATCH(request: NextRequest) {
     if (body.rol !== undefined) fields.Rol = body.rol;
     if (body.escuela !== undefined) fields.Escuela = body.escuela.trim();
     if (body.generacion !== undefined) fields.Generacion = body.generacion.trim();
+    if (body.telefono !== undefined) fields.Telefono = body.telefono.trim();
     if (body.password) fields.Password_hash = await hashPassword(body.password);
 
     if (Object.keys(fields).length === 0) {

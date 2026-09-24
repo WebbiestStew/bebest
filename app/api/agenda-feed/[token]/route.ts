@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyCalendarFeedToken } from '@/lib/calendarFeed';
 import { findRecords, getRecord, escapeAirtableFormula } from '@/lib/airtable';
 import { HARDCODED_ADMIN } from '@/lib/auth';
-import { hasAdminAccess } from '@/lib/roles';
+import { hasFullAccess } from '@/lib/roles';
 import { Cita, User } from '@/lib/types';
 import { buildCitasFeedIcs } from '@/lib/utils';
 
@@ -29,7 +29,7 @@ export async function GET(_request: NextRequest, { params }: { params: { token: 
       return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 });
     }
     nombre = (record as any).Nombre || '';
-    isAdminUser = hasAdminAccess((record as any).Rol);
+    isAdminUser = hasFullAccess((record as any).Rol);
   }
 
   try {

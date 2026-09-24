@@ -15,9 +15,9 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 },
   title: { fontSize: 15, fontFamily: 'Helvetica-Bold', maxWidth: 340 },
   date: { fontSize: 10, color: '#5B6B62', marginTop: 4 },
-  logoStack: { alignItems: 'flex-end' },
-  logoBebest: { width: 80, height: 30, objectFit: 'contain' },
-  logoCpccm: { width: 80, height: 17, objectFit: 'contain', marginTop: 6 },
+  // Only bebest's own mark on this one document (Diego's call) — every
+  // other generated PDF in the app (PdfDocument.tsx) still shows both.
+  logoBebest: { width: 90, height: 34, objectFit: 'contain' },
   sectionHeader: { backgroundColor: '#E3DDCE', paddingVertical: 5, paddingHorizontal: 8, marginTop: 14, marginBottom: 8 },
   sectionHeaderText: { fontSize: 9.5, fontFamily: 'Helvetica-Bold', textTransform: 'uppercase', letterSpacing: 0.5 },
   fieldLine: { flexDirection: 'row', marginBottom: 3 },
@@ -172,10 +172,7 @@ export function InformeResultadosDocument({ data }: { data: InformeResultadosDat
             <Text style={styles.title}>INFORME DE RESULTADOS DE EVALUACIÓN PSICOLÓGICA</Text>
             <Text style={styles.date}>{data.fecha || new Date().toLocaleDateString('es-MX', { dateStyle: 'long' })}</Text>
           </View>
-          <View style={styles.logoStack}>
-            <Image src="/bebest-logo.png" style={styles.logoBebest} />
-            <Image src="/cpccm-logo.jpg" style={styles.logoCpccm} />
-          </View>
+          <Image src="/bebest-logo.png" style={styles.logoBebest} />
         </View>
 
         <SectionHeader numeral="I" title="Datos Iniciales" />

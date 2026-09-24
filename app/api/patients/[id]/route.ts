@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentUserFromRequest, isAdmin } from '@/lib/session';
+import { getCurrentUserFromRequest, hasFullAccess } from '@/lib/session';
 import { getRecord } from '@/lib/airtable';
 import { Patient } from '@/lib/types';
 import { logAccess } from '@/lib/auditLog';
@@ -25,7 +25,7 @@ export async function GET(
     const patientAny = patient as any;
     const isAssigned =
       patientAny.terapeuta === user.nombre || patientAny.coterapeuta === user.nombre;
-    if (!(await isAdmin(request)) && patientAny.terapeuta && !isAssigned) {
+    if (!(await hasFullAccess(request)) && patientAny.terapeuta && !isAssigned) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

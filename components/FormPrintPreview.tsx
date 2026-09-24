@@ -21,19 +21,19 @@ export function FormPrintPreview({
   filename,
   pdfSections,
   children,
-  isAdmin,
+  canSeeAll,
 }: {
   title: string;
   subtitle?: string;
   filename?: string;
   pdfSections?: PdfSectionData[];
   children: React.ReactNode;
-  // Print/Descargar PDF are admin-only — the live "Vista previa" itself
-  // stays visible to everyone (it's just a read-only mirror of the form,
-  // desktop-only already), only the two export actions are gated. Required
-  // rather than defaulted so every call site has to make the call
-  // explicitly instead of silently leaving it exposed.
-  isAdmin: boolean;
+  // Print/Descargar PDF are gated to admin/developer/coordinador — the live
+  // "Vista previa" itself stays visible to everyone (it's just a read-only
+  // mirror of the form, desktop-only already), only the two export actions
+  // are gated. Required rather than defaulted so every call site has to
+  // make the call explicitly instead of silently leaving it exposed.
+  canSeeAll: boolean;
 }) {
   const [isDownloading, setIsDownloading] = useState(false);
 
@@ -60,7 +60,7 @@ export function FormPrintPreview({
       <div className="lg:sticky lg:top-8 bg-white border border-line rounded-2xl shadow-sm print:shadow-none print:border-0 p-8 print:p-0 max-h-[calc(100vh-4rem)] overflow-auto print:max-h-none print:overflow-visible">
         <div className="flex items-center justify-between mb-6 print:hidden gap-3">
           <span className="text-xs font-mono text-ink-soft uppercase tracking-widest shrink-0">Vista previa</span>
-          {isAdmin && (
+          {canSeeAll && (
             <div className="flex items-center gap-3">
               <button
                 type="button"

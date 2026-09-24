@@ -3,7 +3,8 @@ export interface User {
   id: string;
   nombre: string;
   email: string;
-  rol: 'admin' | 'user' | 'developer';
+  telefono?: string;
+  rol: 'admin' | 'user' | 'developer' | 'coordinador' | 'suspendido';
   created_at?: string;
 }
 
@@ -119,9 +120,19 @@ export interface Patient {
   // is checked. psiquiatra_datos_pendientes means "referral discussed, no
   // contact info yet" — checking it fires an admin alert to follow up.
   psiquiatra_nombre?: string;
+  // Superseded by the two fields below (split into phone/email so each is
+  // independently useful — e.g. dialable — instead of one free-text blob).
+  // Kept rather than deleted, same as other superseded fields in this file,
+  // since existing patients may already have it filled in.
   psiquiatra_contacto?: string;
+  psiquiatra_telefono?: string;
+  psiquiatra_email?: string;
   psiquiatra_datos_pendientes?: boolean;
   psiquiatra_notas?: string;
+  // Stamped when Sesión 3 (diagnóstico + plan) is saved — the date the
+  // clinical work behind the Informe de Resultados was actually done, not
+  // whatever day someone happens to click "download" on the PDF later.
+  fecha_informe_completado?: string;
   // Signed informe de resultados (Sesión 3) — the clinic works off the
   // physical signed document, uploaded via `documentos`. These three used to
   // be per-signer checkboxes in the UI (Round 1 of the form-updates thread);
@@ -142,7 +153,15 @@ export interface Patient {
   num_inasistencias?: number;
   expediente_completo?: boolean;
   etapa_actual?: 'Primer contacto' | 'Evaluación' | 'Tratamiento';
-  documentos?: { id: string; url: string; filename: string; size: number; type: string }[];
+  // `documentos` above stays as the general/legacy bucket for anything
+  // uploaded before this split existed. New uploads go into one of these
+  // four instead, since Airtable attachments can't carry their own
+  // per-file category metadata — the only way to actually section them is
+  // separate fields, same trick as plan_no_suicidio_doc above.
+  documentos_datos_personales?: { id: string; url: string; filename: string; size: number; type: string }[];
+  documentos_trabajo?: { id: string; url: string; filename: string; size: number; type: string }[];
+  documentos_sesiones?: { id: string; url: string; filename: string; size: number; type: string }[];
+  documentos_altas_bajas?: { id: string; url: string; filename: string; size: number; type: string }[];
   created_at?: string;
   updated_at?: string;
 }

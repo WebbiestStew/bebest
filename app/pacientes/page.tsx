@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Navigation } from '@/components/Navigation';
 import { Toast } from '@/components/Toast';
-import { hasAdminAccess } from '@/lib/roles';
+import { hasFullAccess } from '@/lib/roles';
 import { Button, BackButton } from '@/components/Button';
 import { useAuth } from '@/lib/useAuth';
 import { Patient } from '@/lib/types';
@@ -193,9 +193,9 @@ export default function PacientesPage() {
   if (isLoading) return null;
   if (!user) return null;
 
-  const isAdmin = hasAdminAccess(user.rol);
-  const pageTitle = isAdmin ? 'Base de Datos' : 'Mis Pacientes';
-  const pageSubtitle = isAdmin
+  const canSeeAll = hasFullAccess(user.rol);
+  const pageTitle = canSeeAll ? 'Base de Datos' : 'Mis Pacientes';
+  const pageSubtitle = canSeeAll
     ? 'Todos los pacientes de la consulta, de todos los psicólogos. Haz clic en un renglón para abrir su ficha.'
     : 'Tus pacientes asignados. Haz clic en un renglón para abrir su ficha.';
 
@@ -287,7 +287,7 @@ export default function PacientesPage() {
             <option value="BAJA">Baja</option>
             <option value="SIN DATO">Sin dato</option>
           </select>
-          {isAdmin && (
+          {canSeeAll && (
             <select
               value={terapeutaFilter}
               onChange={(e) => setTerapeutaFilter(e.target.value)}

@@ -6,7 +6,7 @@ import { Navigation } from '@/components/Navigation';
 import { Toast } from '@/components/Toast';
 import { BackButton } from '@/components/Button';
 import { useAuth } from '@/lib/useAuth';
-import { hasAdminAccess } from '@/lib/roles';
+import { hasFullAccess } from '@/lib/roles';
 import { Patient } from '@/lib/types';
 import { Skeleton } from '@/components/Skeleton';
 import { Textarea, Input, Select } from '@/components/FormInputs';
@@ -66,6 +66,15 @@ function initials(name: string) {
 function formatDate(value?: string) {
   if (!value) return null;
   return new Date(value).toLocaleDateString('es-MX', { timeZone: 'UTC' });
+}
+
+// Same UTC anchoring as formatDate, but spelled out ("7 de septiembre de
+// 2026") — used on the individual session PDF, which previously showed the
+// short numeric form while every other generated document in the app
+// (Antes de la sesión, Informe de Resultados) already used the long form.
+function formatDateLong(value?: string) {
+  if (!value) return null;
+  return new Date(value).toLocaleDateString('es-MX', { dateStyle: 'long', timeZone: 'UTC' });
 }
 
 // Unlike formatDate (used for stored yyyy-mm-dd dates, where the UTC anchor
@@ -226,12 +235,12 @@ export default function PacienteDetailPage() {
           dx_otros_adicionales: '',
           plan_tratamiento: '',
           bateria_pruebas: '',
-          // bateria_interpretaciones and psiquiatra_notas are deliberately
-          // left out here — Airtable rejects the whole update if a field
-          // name doesn't exist as a real column yet, and both are newer
-          // than the pacientes_2025_2026 schema. Nothing to actually clear
-          // on a patient who's never had that column anyway; add them back
-          // once the columns exist.
+          // bateria_interpretaciones, psiquiatra_notas, psiquiatra_telefono,
+          // and psiquiatra_email are deliberately left out here — Airtable
+          // rejects the whole update if a field name doesn't exist as a real
+          // column yet, and all four are newer than the pacientes_2025_2026
+          // schema. Nothing to actually clear on a patient who's never had
+          // that column anyway; add them back once the columns exist.
           observaciones_pruebas: '',
           historia_clinica: '',
           plan_no_suicidio: false,
@@ -430,7 +439,7 @@ export default function PacienteDetailPage() {
           title: 'Sesión',
           fields: [
             { label: 'Paciente', value: p.paciente, full: true },
-            { label: 'Fecha', value: formatDate(cita.fecha) },
+            { label: 'Fecha', value: formatDateLong(cita.fecha) },
             { label: 'Hora', value: cita.hora },
             { label: 'Terapeuta', value: cita.terapeuta },
             { label: 'Estado', value: cita.estado },
@@ -442,7 +451,7 @@ export default function PacienteDetailPage() {
       await downloadPdf(
         <PdfDocument
           title={`Sesión — ${p.paciente}`}
-          subtitle={formatDate(cita.fecha) ?? undefined}
+          subtitle={formatDateLong(cita.fecha) ?? undefined}
           sections={sections}
           generatedNote="Consulta · Resumen de una sesión"
         />,
@@ -583,7 +592,9 @@ export default function PacienteDetailPage() {
               value: p.referido_psiquiatria
                 ? p.psiquiatra_datos_pendientes
                   ? 'Referido — datos pendientes'
-                  : [p.psiquiatra_nombre, p.psiquiatra_contacto].filter(Boolean).join(' — ') || 'Referido'
+                  : [p.psiquiatra_nombre, p.psiquiatra_telefono, p.psiquiatra_email, p.psiquiatra_contacto]
+                      .filter(Boolean)
+                      .join(' — ') || 'Referido'
                 : 'No referido',
               full: true,
             },
@@ -646,7 +657,14 @@ export default function PacienteDetailPage() {
         <InformeResultadosDocument
           data={{
             nombre: p.paciente,
-            fecha: new Date().toLocaleDateString('es-MX', { dateStyle: 'long' }),
+            // The date the clinical work was actually done, not whatever day
+            // this PDF happens to get (re)downloaded — falls back to today
+            // for patients who finished Sesión 3 before this field existed.
+            // UTC-anchored like formatDate() above, to avoid the same
+            // off-by-one-day shift a stored yyyy-mm-dd is prone to.
+            fecha: p.fecha_informe_completado
+              ? new Date(p.fecha_informe_completado).toLocaleDateString('es-MX', { dateStyle: 'long', timeZone: 'UTC' })
+              : new Date().toLocaleDateString('es-MX', { dateStyle: 'long' }),
             edad: p.edad,
             sexo: p.sexo,
             estadoCivil: p.estado_civil,
@@ -675,7 +693,7 @@ export default function PacienteDetailPage() {
     }
   };
 
-  const handleFileUpload = async (file: File) => {
+  const handleFileUpload = async (file: File, field: string = 'documentos') => {
     if (file.size > 15 * 1024 * 1024) {
       window.dispatchEvent(
         new CustomEvent('showToast', { detail: { message: 'El archivo supera el límite de 15MB', isError: true } })
@@ -684,7 +702,7 @@ export default function PacienteDetailPage() {
     }
     setIsUploading(true);
     try {
-      const res = await uploadPatientDocument(patientId, file);
+      const res = await uploadPatientDocument(patientId, file, field);
       if (res.ok) {
         const data = await res.json();
         setPatient(data.patient);
@@ -706,12 +724,12 @@ export default function PacienteDetailPage() {
     }
   };
 
-  const handleDeleteDocument = (attachmentId: string) => {
+  const handleDeleteDocument = (attachmentId: string, field: string = 'documentos') => {
     const previousPatient = patient;
-    const doc = ((patient as any)?.documentos || []).find((d: any) => d.id === attachmentId);
+    const doc = ((patient as any)?.[field] || []).find((d: any) => d.id === attachmentId);
     setPatient((prev: any) => ({
       ...prev,
-      documentos: (prev?.documentos || []).filter((d: any) => d.id !== attachmentId),
+      [field]: (prev?.[field] || []).filter((d: any) => d.id !== attachmentId),
     }));
 
     deleteWithUndo({
@@ -719,9 +737,10 @@ export default function PacienteDetailPage() {
       restore: () => setPatient(previousPatient),
       performDelete: async () => {
         try {
-          const res = await fetch(`/api/patients/${patientId}/documentos?attachmentId=${attachmentId}`, {
-            method: 'DELETE',
-          });
+          const res = await fetch(
+            `/api/patients/${patientId}/documentos?attachmentId=${attachmentId}&field=${field}`,
+            { method: 'DELETE' }
+          );
           if (res.ok) {
             const data = await res.json();
             setPatient(data.patient);
@@ -821,7 +840,7 @@ export default function PacienteDetailPage() {
   if (!patient) return null;
 
   const p = patient as any;
-  const isAdmin = hasAdminAccess(user.rol);
+  const canSeeAll = hasFullAccess(user.rol);
 
   const registroFields = [
     { label: 'Edad', value: p.edad ?? null },
@@ -844,11 +863,11 @@ export default function PacienteDetailPage() {
       <main className="flex-1 overflow-auto p-4 sm:p-8 lg:p-12 max-w-3xl">
         <div className="flex items-center justify-between mb-1 print:hidden flex-wrap gap-2">
           <BackButton onClick={() => router.push('/pacientes')} />
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Button variant="secondary" size="sm" onClick={startEditingPatient}>
               ✏️ Editar
             </Button>
-            {isAdmin && (
+            {canSeeAll && (
               <>
                 <Button
                   variant="secondary"
@@ -926,7 +945,21 @@ export default function PacienteDetailPage() {
             reads at a glance. Runs oldest-to-newest (session 1 at top) since
             that's how a chronology is actually read; the PDF export below
             keeps sessionHistory's own newest-first order untouched. */}
-        {sessionHistory.length > 0 && (
+        {sessionHistory.length > 0 && (() => {
+          const orderedHistory = [...sessionHistory].reverse();
+          // Reingreso does a full clinical reset but never touches past
+          // citas, so old sessions were already showing here — they just
+          // blended into the new ones with nothing marking the restart.
+          // fecha_ingreso gets re-stamped to "today" on every reingreso, so
+          // it doubles as the boundary: any session on/after it belongs to
+          // the current admission.
+          const fechaIngreso = p.fecha_ingreso ? String(p.fecha_ingreso).slice(0, 10) : null;
+          const reingresoIndex = fechaIngreso
+            ? orderedHistory.findIndex((c: any) => String(c.fecha || '').slice(0, 10) >= fechaIngreso)
+            : -1;
+          const showReingresoDivider = reingresoIndex > 0 && reingresoIndex < orderedHistory.length;
+
+          return (
           <div
             className="bg-panel border border-line rounded-lg p-8 mb-6 animate-fade-in-up"
             style={{ animationDelay: '90ms' }}
@@ -937,12 +970,20 @@ export default function PacienteDetailPage() {
             <div className="relative">
               <div className="absolute left-4 top-4 bottom-4 w-px bg-line" aria-hidden="true" />
               <div className="space-y-5">
-                {[...sessionHistory].reverse().map((c, i) => (
-                  <div
-                    key={c.id}
-                    className="relative flex gap-4 animate-fade-in-up"
-                    style={{ animationDelay: `${Math.min(i, 20) * 40}ms` }}
-                  >
+                {orderedHistory.map((c, i) => (
+                  <div key={c.id}>
+                    {showReingresoDivider && i === reingresoIndex && (
+                      <div className="relative flex items-center gap-3 mb-5 pl-11">
+                        <span className="text-[11px] font-mono uppercase tracking-widest text-clay bg-clay-pale px-2.5 py-1 rounded-full shrink-0">
+                          Reingreso · {formatDate(p.fecha_ingreso)}
+                        </span>
+                        <div className="h-px bg-clay-pale flex-1" />
+                      </div>
+                    )}
+                    <div
+                      className="relative flex gap-4 animate-fade-in-up"
+                      style={{ animationDelay: `${Math.min(i, 20) * 40}ms` }}
+                    >
                     <div className="relative z-10 shrink-0 w-8 h-8 rounded-full bg-sage-deep text-white text-xs font-mono font-medium flex items-center justify-center transition-transform duration-150 hover:scale-110">
                       {i + 1}
                     </div>
@@ -951,8 +992,9 @@ export default function PacienteDetailPage() {
                         <span className="text-xs font-mono text-ink-soft">
                           {formatDate(c.fecha)}
                           {c.terapeuta && <span className="text-ink-soft/70"> · {c.terapeuta}</span>}
+                          {p.coterapeuta && <span className="text-ink-soft/70"> · co: {p.coterapeuta}</span>}
                         </span>
-                        {isAdmin && (
+                        {canSeeAll && (
                           <button
                             onClick={() => handleDownloadSession(c)}
                             disabled={downloadingSessionId === c.id}
@@ -966,12 +1008,14 @@ export default function PacienteDetailPage() {
                         {c.notas_sesion || <span className="italic text-ink-soft/60">Sin notas</span>}
                       </div>
                     </div>
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* Notas generales */}
         <div
@@ -1181,68 +1225,81 @@ export default function PacienteDetailPage() {
         <PsychTestResultsSection items={parsePruebaInterpretaciones(p.bateria_interpretaciones)} patientId={patientId} />
 
         {/* File attachments */}
-        <div
-          className="bg-panel border border-line rounded-lg p-8 mt-6 animate-fade-in-up"
-          style={{ animationDelay: '280ms' }}
-        >
-          <div className="flex items-center justify-between mb-4">
-            <div className="text-xs font-mono text-sage-deep uppercase tracking-widest">Archivos adjuntos</div>
-            <label
-              className={`text-xs font-medium px-3 py-1.5 rounded-lg border border-line text-ink-soft transition-all duration-150 cursor-pointer hover:border-sage hover:text-sage-deep hover:bg-sage-pale/40 ${
-                isUploading ? 'opacity-50 pointer-events-none' : ''
-              }`}
+        {[
+          { field: 'documentos_datos_personales', label: 'Datos personales' },
+          { field: 'documentos_trabajo', label: 'Trabajo' },
+          { field: 'documentos_sesiones', label: 'Archivos de sesión' },
+          { field: 'documentos_altas_bajas', label: 'Reportes de alta / baja' },
+          // Legacy/general bucket — anything uploaded before the sections
+          // above existed lives here and stays visible, it just doesn't get
+          // new uploads anymore.
+          { field: 'documentos', label: 'General' },
+        ].map(({ field, label }, idx) => {
+          const docs = (p as any)[field] || [];
+          return (
+            <div
+              key={field}
+              className="bg-panel border border-line rounded-lg p-8 mt-6 animate-fade-in-up"
+              style={{ animationDelay: `${280 + idx * 20}ms` }}
             >
-              {isUploading ? 'Subiendo…' : '+ Subir archivo'}
-              <input
-                type="file"
-                className="hidden"
-                disabled={isUploading}
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleFileUpload(file);
-                  e.target.value = '';
-                }}
-              />
-            </label>
-          </div>
-
-          {p.documentos && p.documentos.length > 0 ? (
-            <div className="space-y-2">
-              {p.documentos.map((doc: any) => (
-                <div
-                  key={doc.id}
-                  className="flex items-center justify-between gap-3 p-3 rounded-lg border border-line transition-colors duration-150 hover:bg-sage-pale/20"
+              <div className="flex items-center justify-between mb-4">
+                <div className="text-xs font-mono text-sage-deep uppercase tracking-widest">{label}</div>
+                <label
+                  className={`text-xs font-medium px-3 py-1.5 rounded-lg border border-line text-ink-soft transition-all duration-150 cursor-pointer hover:border-sage hover:text-sage-deep hover:bg-sage-pale/40 ${
+                    isUploading ? 'opacity-50 pointer-events-none' : ''
+                  }`}
                 >
-                  <a
-                    href={`/api/patients/${patientId}/documentos/${doc.id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-3 min-w-0 flex-1"
-                  >
-                    <span className="text-xl shrink-0">{fileIcon(doc.type)}</span>
-                    <div className="min-w-0">
-                      <div className="text-sm text-ink truncate hover:text-sage-deep transition-colors">
-                        {doc.filename}
-                      </div>
-                      <div className="text-xs text-ink-soft">{formatBytes(doc.size)}</div>
+                  {isUploading ? 'Subiendo…' : '+ Subir archivo'}
+                  <input
+                    type="file"
+                    className="hidden"
+                    disabled={isUploading}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleFileUpload(file, field);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
+
+              {docs.length > 0 ? (
+                <div className="space-y-2">
+                  {docs.map((doc: any) => (
+                    <div
+                      key={doc.id}
+                      className="flex items-center justify-between gap-3 p-3 rounded-lg border border-line transition-colors duration-150 hover:bg-sage-pale/20"
+                    >
+                      <a
+                        href={`/api/patients/${patientId}/documentos/${doc.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-3 min-w-0 flex-1"
+                      >
+                        <span className="text-xl shrink-0">{fileIcon(doc.type)}</span>
+                        <div className="min-w-0">
+                          <div className="text-sm text-ink truncate hover:text-sage-deep transition-colors">
+                            {doc.filename}
+                          </div>
+                          <div className="text-xs text-ink-soft">{formatBytes(doc.size)}</div>
+                        </div>
+                      </a>
+                      <button
+                        onClick={() => handleDeleteDocument(doc.id, field)}
+                        className="text-xs text-ink-soft hover:text-red transition-colors duration-150 shrink-0 px-2 py-1"
+                        aria-label={`Eliminar ${doc.filename}`}
+                      >
+                        Eliminar
+                      </button>
                     </div>
-                  </a>
-                  <button
-                    onClick={() => handleDeleteDocument(doc.id)}
-                    className="text-xs text-ink-soft hover:text-red transition-colors duration-150 shrink-0 px-2 py-1"
-                    aria-label={`Eliminar ${doc.filename}`}
-                  >
-                    Eliminar
-                  </button>
+                  ))}
                 </div>
-              ))}
+              ) : (
+                <p className="text-sm text-ink-soft italic">Sin archivos en esta sección.</p>
+              )}
             </div>
-          ) : (
-            <p className="text-sm text-ink-soft italic">
-              Sin archivos. Sube consentimientos firmados, resultados de pruebas u otros documentos.
-            </p>
-          )}
-        </div>
+          );
+        })}
       </main>
 
       {isEditingPatient && (

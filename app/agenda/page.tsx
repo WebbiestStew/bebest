@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Navigation } from '@/components/Navigation';
 import { Toast } from '@/components/Toast';
-import { hasAdminAccess } from '@/lib/roles';
+import { hasFullAccess } from '@/lib/roles';
 import { Button, BackButton } from '@/components/Button';
 import { Input, Select, Textarea, Checkbox } from '@/components/FormInputs';
 import { useAuth } from '@/lib/useAuth';
@@ -70,7 +70,7 @@ export default function AgendaPage() {
   const [isLoadingFeed, setIsLoadingFeed] = useState(false);
   const [copiedFeedLink, setCopiedFeedLink] = useState(false);
 
-  const isAdmin = hasAdminAccess(user?.rol);
+  const canSeeAll = hasFullAccess(user?.rol);
 
   const fetchAll = async () => {
     try {
@@ -97,10 +97,10 @@ export default function AgendaPage() {
   }, [user]);
 
   useEffect(() => {
-    if (user && !isAdmin) {
+    if (user && !canSeeAll) {
       setFormData((f) => ({ ...f, terapeuta: user.nombre }));
     }
-  }, [user, isAdmin]);
+  }, [user, canSeeAll]);
 
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
 
@@ -139,8 +139,8 @@ export default function AgendaPage() {
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
     if (!formData.paciente_id) newErrors.paciente_id = 'Este campo es obligatorio.';
-    if (!isAdmin && !formData.terapeuta) newErrors.terapeuta = 'Este campo es obligatorio.';
-    if (isAdmin && !formData.terapeuta) newErrors.terapeuta = 'Este campo es obligatorio.';
+    if (!canSeeAll && !formData.terapeuta) newErrors.terapeuta = 'Este campo es obligatorio.';
+    if (canSeeAll && !formData.terapeuta) newErrors.terapeuta = 'Este campo es obligatorio.';
     if (!formData.fecha) newErrors.fecha = 'Este campo es obligatorio.';
     if (!formData.hora) newErrors.hora = 'Este campo es obligatorio.';
     setErrors(newErrors);
@@ -327,7 +327,7 @@ export default function AgendaPage() {
         <div className="mb-6 flex flex-wrap items-end justify-between gap-4 animate-fade-in-up">
           <div>
             <div className="text-sm font-mono text-sage-deep uppercase tracking-widest mb-2">
-              {isAdmin ? 'Toda la consulta' : 'Tus citas'}
+              {canSeeAll ? 'Toda la consulta' : 'Tus citas'}
             </div>
             <h1 className="font-serif text-4xl font-medium mb-2">Agenda</h1>
             <p className="text-ink-soft text-base">Quién ves esta semana, día por día.</p>
@@ -359,7 +359,7 @@ export default function AgendaPage() {
                 error={errors.paciente_id}
                 required
               />
-              {isAdmin ? (
+              {canSeeAll ? (
                 <Select
                   label="Terapeuta"
                   options={therapists.map((t) => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) }))}
@@ -495,7 +495,7 @@ export default function AgendaPage() {
                             <span className="text-sm font-mono text-ink-soft shrink-0">{c.hora}</span>
                             <div className="min-w-0">
                               <div className="text-sm font-medium text-ink truncate">{c.paciente_nombre}</div>
-                              {isAdmin && <div className="text-xs text-ink-soft">{c.terapeuta}</div>}
+                              {canSeeAll && <div className="text-xs text-ink-soft">{c.terapeuta}</div>}
                             </div>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">

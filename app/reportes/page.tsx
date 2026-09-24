@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Navigation } from '@/components/Navigation';
 import { Toast } from '@/components/Toast';
-import { hasAdminAccess } from '@/lib/roles';
+import { hasFullAccess } from '@/lib/roles';
 import { BackButton, Button } from '@/components/Button';
 import { useAuth } from '@/lib/useAuth';
 import { VerticalBars, BarDatum } from '@/components/charts/VerticalBars';
@@ -121,7 +121,7 @@ export default function ReportesPage() {
   if (isLoading) return null;
   if (!user) return null;
 
-  const isAdmin = hasAdminAccess(user.rol);
+  const canSeeAll = hasFullAccess(user.rol);
   const avgAge = filtered.length
     ? Math.round(filtered.reduce((s, p) => s + (p.edad || 0), 0) / filtered.filter((p) => p.edad).length) || 0
     : 0;
@@ -321,7 +321,7 @@ export default function ReportesPage() {
           title: 'Frecuencia de sesiones',
           fields: frecuenciaData.map((d) => ({ label: d.label, value: frecuenciaTotal ? `${d.value} (${Math.round((d.value / frecuenciaTotal) * 100)}%)` : d.value })),
         },
-        ...(isAdmin
+        ...(canSeeAll
           ? [
               {
                 title: 'Pacientes por terapeuta',
@@ -345,7 +345,7 @@ export default function ReportesPage() {
           title: 'Motivos de consulta más frecuentes',
           fields: motivoData.map((d) => ({ label: d.label, value: d.value, full: true })),
         },
-        ...(isAdmin
+        ...(canSeeAll
           ? [
               {
                 title: 'Sesiones y asistencia por terapeuta',
@@ -390,23 +390,23 @@ export default function ReportesPage() {
           <BackButton onClick={() => router.push('/')} />
         </div>
 
-        <div className="mb-6 flex items-end justify-between animate-fade-in-up">
+        <div className="mb-6 flex items-end justify-between flex-wrap gap-4 animate-fade-in-up">
           <div>
             <div className="text-sm font-mono text-sage-deep uppercase tracking-widest mb-2">
-              {isAdmin ? 'Toda la consulta' : 'Tus pacientes'}
+              {canSeeAll ? 'Toda la consulta' : 'Tus pacientes'}
             </div>
             <h1 className="font-serif text-4xl font-medium mb-2">Reportes</h1>
             <p className="text-ink-soft text-base">
               Estadísticas de {periodLabel.toLowerCase()} — generadas automáticamente, sin Excel de por medio.
             </p>
           </div>
-          <div className="flex items-center gap-2 print:hidden">
-            {isAdmin && (
+          <div className="flex items-center gap-2 flex-wrap print:hidden">
+            {canSeeAll && (
               <Button variant="secondary" onClick={() => window.print()}>
                 🖨 Imprimir
               </Button>
             )}
-            {isAdmin && (
+            {canSeeAll && (
               <Button variant="secondary" onClick={handleExportPdf} disabled={isExportingPdf} isLoading={isExportingPdf}>
                 ⬇️ Descargar reporte (PDF)
               </Button>
@@ -551,7 +551,7 @@ export default function ReportesPage() {
               <VerticalBars data={frecuenciaData} />
             </ChartCard>
 
-            {isAdmin && (
+            {canSeeAll && (
               <ChartCard
                 title="Pacientes por terapeuta"
                 subtitle={`${terapeutaSorted.length} terapeutas`}
@@ -601,7 +601,7 @@ export default function ReportesPage() {
               <RankedBars data={motivoData} color={CATEGORICAL[2]} unit="menciones" />
             </ChartCard>
 
-            {isAdmin && (
+            {canSeeAll && (
               <ChartCard
                 title="Sesiones y asistencia por terapeuta"
                 subtitle="% de inasistencia sobre sesiones resueltas"
@@ -619,7 +619,7 @@ export default function ReportesPage() {
           </div>
         )}
 
-        {isAdmin && (
+        {canSeeAll && (
           <div className="mt-10 print:hidden">
             <div className="mb-3">
               <h2 className="font-serif text-2xl font-medium mb-1">Todas las tablas de Airtable</h2>

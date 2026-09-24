@@ -8,7 +8,7 @@ import { BackButton } from '@/components/Button';
 import { useAuth } from '@/lib/useAuth';
 import { Alert } from '@/lib/types';
 import { Skeleton } from '@/components/Skeleton';
-import { hasAdminAccess } from '@/lib/roles';
+import { hasFullAccess } from '@/lib/roles';
 import { getLastCompletedSessionFecha, isPatientGoingQuiet, INACTIVITY_THRESHOLD_DAYS } from '@/lib/utils';
 
 export default function AlertasPage() {
@@ -77,7 +77,7 @@ export default function AlertasPage() {
   }
   if (!user) return null;
 
-  const isAdmin = hasAdminAccess(user.rol);
+  const canSeeAll = hasFullAccess(user.rol);
 
   return (
     <div className="flex flex-col md:flex-row h-screen bg-bg">
@@ -88,11 +88,11 @@ export default function AlertasPage() {
 
         <div className="mb-8 animate-fade-in-up">
           <div className="text-sm font-mono text-sage-deep uppercase tracking-widest mb-2">
-            {isAdmin ? 'Todos los expedientes' : 'Tus pacientes'}
+            {canSeeAll ? 'Todos los expedientes' : 'Tus pacientes'}
           </div>
           <h1 className="font-serif text-4xl font-medium mb-2">Alertas de expedientes incompletos</h1>
           <p className="text-ink-soft text-base">
-            {isAdmin
+            {canSeeAll
               ? 'Cuando un psicólogo guarda y sale sin terminar un formulario, aparece aquí.'
               : 'Cuando guardas y sales sin terminar un formulario, aparece aquí.'}
           </p>

@@ -10,6 +10,12 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 // have somewhere to actually land now that ALERT_SANDBOX_RECIPIENT is gone.
 const HARDCODED_ADMIN_EMAIL = 'dvillarreal@bebest.mx';
 
+// NEXT_PUBLIC_APP_URL isn't set in local dev, and this fallback goes straight
+// into email links — a recipient's inbox can never reach localhost, so the
+// fallback here is the real deployed URL, not localhost like other "not set
+// locally" fallbacks elsewhere in the app.
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://bebest.vercel.app';
+
 // Shared visual shell for every outbound email — matches the app's actual
 // palette (tailwind.config.js) and serif/sans pairing instead of the
 // unstyled default browser look. Email clients strip <style> blocks and
@@ -115,7 +121,7 @@ export async function sendAlertEmail(alert: AlertEmailInput): Promise<boolean> {
             </table>
           </div>
         `,
-        ctaHref: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/alertas`,
+        ctaHref: `${APP_URL}/alertas`,
         ctaLabel: 'Ver alertas →',
       }),
     });
@@ -169,7 +175,7 @@ export async function sendSugerenciaEmail(input: SugerenciaEmailInput): Promise<
           </div>
           ${input.pagina ? `<p style="font-size:13px;color:#5B6B62;margin-top:14px;">Enviada desde: ${input.pagina}</p>` : ''}
         `,
-        ctaHref: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/sugerencias`,
+        ctaHref: `${APP_URL}/sugerencias`,
         ctaLabel: 'Ver sugerencias →',
       }),
     });

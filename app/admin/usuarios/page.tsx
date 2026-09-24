@@ -45,6 +45,7 @@ export default function AdminUsuariosPage() {
     rol: 'user',
     escuela: '',
     generacion: '',
+    telefono: '',
   });
   const [userToDelete, setUserToDelete] = useState<{ id: string; nombre: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -56,6 +57,7 @@ export default function AdminUsuariosPage() {
     rol: 'user',
     escuela: '',
     generacion: '',
+    telefono: '',
   });
   const [editErrors, setEditErrors] = useState<EditFormErrors>({});
   const [isSavingEdit, setIsSavingEdit] = useState(false);
@@ -113,6 +115,7 @@ export default function AdminUsuariosPage() {
           rol: formData.rol,
           escuela: formData.escuela.trim(),
           generacion: formData.generacion.trim(),
+          telefono: formData.telefono.trim(),
         }),
       });
 
@@ -122,7 +125,7 @@ export default function AdminUsuariosPage() {
             detail: { message: `Usuario "${formData.nombre}" creado correctamente.`, isError: false },
           })
         );
-        setFormData({ nombre: '', email: '', password: '', rol: 'user', escuela: '', generacion: '' });
+        setFormData({ nombre: '', email: '', password: '', rol: 'user', escuela: '', generacion: '', telefono: '' });
         fetchUsers();
       } else {
         const error = await response.json();
@@ -185,6 +188,7 @@ export default function AdminUsuariosPage() {
       rol: u.Rol || 'user',
       escuela: u.Escuela || '',
       generacion: u.Generacion || '',
+      telefono: u.Telefono || '',
     });
     setEditErrors({});
   };
@@ -212,6 +216,7 @@ export default function AdminUsuariosPage() {
           rol: editFormData.rol,
           escuela: editFormData.escuela.trim(),
           generacion: editFormData.generacion.trim(),
+          telefono: editFormData.telefono.trim(),
           ...(editFormData.password.trim() ? { password: editFormData.password.trim() } : {}),
         }),
       });
@@ -327,7 +332,10 @@ export default function AdminUsuariosPage() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm text-ink-soft">{u.Email}</td>
+                    <td className="px-4 py-3 text-sm text-ink-soft">
+                      {u.Email}
+                      {u.Telefono && <div className="text-xs text-ink-soft/80">{u.Telefono}</div>}
+                    </td>
                     <td className="px-4 py-3">
                       <span
                         className={`inline-block px-3 py-1 rounded-full text-xs font-mono ${
@@ -335,6 +343,10 @@ export default function AdminUsuariosPage() {
                             ? 'bg-clay-pale text-clay'
                             : u.Rol === 'developer'
                             ? 'bg-blue/10 text-blue'
+                            : u.Rol === 'coordinador'
+                            ? 'bg-ink/10 text-ink'
+                            : u.Rol === 'suspendido'
+                            ? 'bg-red-pale text-red'
                             : 'bg-sage-pale text-sage-deep'
                         }`}
                       >
@@ -411,11 +423,20 @@ export default function AdminUsuariosPage() {
             label="Rol"
             options={[
               { value: 'user', label: 'Psicólogo' },
+              { value: 'coordinador', label: 'Coordinador (ve todo, no administra cuentas)' },
               { value: 'admin', label: 'Administrador' },
               { value: 'developer', label: 'Desarrollador (mismos permisos que Administrador)' },
+              { value: 'suspendido', label: 'Suspendido (sin acceso, sin eliminar la cuenta)' },
             ]}
             value={formData.rol}
             onChange={(e) => setFormData({ ...formData, rol: e.target.value })}
+          />
+
+          <Input
+            label="Teléfono (opcional)"
+            type="tel"
+            value={formData.telefono}
+            onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
           />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -499,11 +520,20 @@ export default function AdminUsuariosPage() {
               label="Rol"
               options={[
                 { value: 'user', label: 'Psicólogo' },
+                { value: 'coordinador', label: 'Coordinador (ve todo, no administra cuentas)' },
                 { value: 'admin', label: 'Administrador' },
                 { value: 'developer', label: 'Desarrollador (mismos permisos que Administrador)' },
+                { value: 'suspendido', label: 'Suspendido (sin acceso, sin eliminar la cuenta)' },
               ]}
               value={editFormData.rol}
               onChange={(e) => setEditFormData({ ...editFormData, rol: e.target.value })}
+            />
+
+            <Input
+              label="Teléfono (opcional)"
+              type="tel"
+              value={editFormData.telefono}
+              onChange={(e) => setEditFormData({ ...editFormData, telefono: e.target.value })}
             />
 
             <Input

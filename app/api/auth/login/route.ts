@@ -46,6 +46,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Correct credentials, but the account is suspended — not a failed
+    // login attempt (so it doesn't count toward rate limiting), just a
+    // clear block. Checked before clearRateLimit/session creation.
+    if (user.rol === 'suspendido') {
+      return NextResponse.json(
+        { error: 'Esta cuenta está suspendida. Contacta a un administrador.' },
+        { status: 403 }
+      );
+    }
+
     await clearRateLimit(email);
 
     if (REQUIRE_2FA) {

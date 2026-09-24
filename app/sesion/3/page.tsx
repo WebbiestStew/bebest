@@ -8,7 +8,7 @@ import { Button, BackButton } from '@/components/Button';
 import { Input, Select, Checkbox, Textarea } from '@/components/FormInputs';
 import { FormPrintPreview, PreviewSection, PreviewField } from '@/components/FormPrintPreview';
 import { useAuth } from '@/lib/useAuth';
-import { hasAdminAccess } from '@/lib/roles';
+import { hasFullAccess } from '@/lib/roles';
 import { Patient } from '@/lib/types';
 import {
   uploadPatientDocument,
@@ -52,7 +52,8 @@ export default function Sesion3Page() {
     consentimiento: false,
     referido_psiquiatria: false,
     psiquiatra_nombre: '',
-    psiquiatra_contacto: '',
+    psiquiatra_telefono: '',
+    psiquiatra_email: '',
     psiquiatra_datos_pendientes: false,
     psiquiatra_notas: '',
   });
@@ -95,7 +96,7 @@ export default function Sesion3Page() {
   if (isLoading) return null;
   if (!user) return null;
 
-  const isAdmin = hasAdminAccess(user.rol);
+  const canSeeAll = hasFullAccess(user.rol);
 
   const validateForm = () => {
     const newErrors: FormErrors = {};
@@ -128,7 +129,7 @@ export default function Sesion3Page() {
     // scratch every time a therapist left and came back.
     setFormData({
       paciente: patientId,
-      terapeuta: (p as any)?.terapeuta || (isAdmin ? '' : user.nombre),
+      terapeuta: (p as any)?.terapeuta || (canSeeAll ? '' : user.nombre),
       dx_principal: (p as any)?.dx_principal || '',
       dx_comorbilidad: (p as any)?.dx_comorbilidad || '',
       dx_otros: (p as any)?.dx_otros_problemas || '',
@@ -136,7 +137,8 @@ export default function Sesion3Page() {
       consentimiento: !!(p as any)?.consentimiento_informado,
       referido_psiquiatria: !!(p as any)?.referido_psiquiatria,
       psiquiatra_nombre: (p as any)?.psiquiatra_nombre || '',
-      psiquiatra_contacto: (p as any)?.psiquiatra_contacto || '',
+      psiquiatra_telefono: (p as any)?.psiquiatra_telefono || '',
+      psiquiatra_email: (p as any)?.psiquiatra_email || '',
       psiquiatra_datos_pendientes: !!(p as any)?.psiquiatra_datos_pendientes,
       psiquiatra_notas: (p as any)?.psiquiatra_notas || '',
     });
@@ -277,11 +279,16 @@ export default function Sesion3Page() {
           ...(formData.referido_psiquiatria
             ? {
                 psiquiatra_nombre: formData.psiquiatra_nombre.trim(),
-                psiquiatra_contacto: formData.psiquiatra_contacto.trim(),
                 psiquiatra_datos_pendientes: formData.psiquiatra_datos_pendientes,
               }
             : {}),
+          // New Airtable columns — only sent when filled in, same defensive
+          // pattern as psiquiatra_notas below, since Airtable rejects the
+          // whole update if a field name isn't a real column yet.
+          ...(formData.psiquiatra_telefono.trim() ? { psiquiatra_telefono: formData.psiquiatra_telefono.trim() } : {}),
+          ...(formData.psiquiatra_email.trim() ? { psiquiatra_email: formData.psiquiatra_email.trim() } : {}),
           ...(formData.psiquiatra_notas.trim() ? { psiquiatra_notas: formData.psiquiatra_notas.trim() } : {}),
+          fecha_informe_completado: new Date().toISOString().slice(0, 10),
           num_sesiones: ((patientFull as any)?.num_sesiones || 0) + 1,
           etapa_actual: 'Tratamiento',
           expediente_completo: true,
@@ -345,7 +352,9 @@ export default function Sesion3Page() {
 
   const psiquiatraDatosPreview = formData.psiquiatra_datos_pendientes
     ? 'Pendientes'
-    : [formData.psiquiatra_nombre, formData.psiquiatra_contacto].filter(Boolean).join(' — ');
+    : [formData.psiquiatra_nombre, formData.psiquiatra_telefono, formData.psiquiatra_email]
+        .filter(Boolean)
+        .join(' — ');
 
   return (
     <div className="flex flex-col md:flex-row h-screen bg-bg">
@@ -362,27 +371,29 @@ export default function Sesion3Page() {
           <p className="text-ink-soft text-base">Informe clínico y documentos de cierre de la evaluación.</p>
         </div>
 
-        {/* Step Tracker */}
-        <div className="flex items-center gap-4 mb-8 animate-fade-in-up" style={{ animationDelay: '60ms' }}>
-          <div className="flex items-center">
+        {/* Step Tracker — labels hidden below sm: three uppercase Spanish
+            words plus connecting lines don't fit a 375px viewport, and the
+            page title above already says which step this is. */}
+        <div className="flex items-center gap-2 sm:gap-4 mb-8 animate-fade-in-up" style={{ animationDelay: '60ms' }}>
+          <div className="flex items-center shrink-0">
             <div className="w-8 h-8 rounded-full bg-sage-deep text-white flex items-center justify-center text-xs font-mono font-medium transition-all duration-300">
               ✓
             </div>
-            <span className="ml-2 text-xs text-ink-soft uppercase">Entrevista</span>
+            <span className="ml-2 text-xs text-ink-soft uppercase hidden sm:inline">Entrevista</span>
           </div>
           <div className="flex-1 h-px bg-line" />
-          <div className="flex items-center">
+          <div className="flex items-center shrink-0">
             <div className="w-8 h-8 rounded-full bg-sage-deep text-white flex items-center justify-center text-xs font-mono font-medium transition-all duration-300">
               ✓
             </div>
-            <span className="ml-2 text-xs text-ink-soft uppercase">Pruebas</span>
+            <span className="ml-2 text-xs text-ink-soft uppercase hidden sm:inline">Pruebas</span>
           </div>
           <div className="flex-1 h-px bg-line" />
-          <div className="flex items-center">
+          <div className="flex items-center shrink-0">
             <div className="w-8 h-8 rounded-full bg-sage-deep text-white flex items-center justify-center text-xs font-mono scale-110 shadow-md transition-all duration-300 animate-scale-in">
               3
             </div>
-            <span className="ml-2 text-xs text-ink-soft uppercase">Resultados</span>
+            <span className="ml-2 text-xs text-ink-soft uppercase hidden sm:inline">Resultados</span>
           </div>
         </div>
 
@@ -400,7 +411,7 @@ export default function Sesion3Page() {
             required
           />
 
-          {isAdmin ? (
+          {canSeeAll ? (
             <Select
               label="Terapeuta"
               options={therapists.map((t) => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) }))}
@@ -665,9 +676,16 @@ export default function Sesion3Page() {
                         onChange={(e) => setFormData({ ...formData, psiquiatra_nombre: e.target.value })}
                       />
                       <Input
-                        label="Teléfono o correo de contacto"
-                        value={formData.psiquiatra_contacto}
-                        onChange={(e) => setFormData({ ...formData, psiquiatra_contacto: e.target.value })}
+                        label="Teléfono del psiquiatra"
+                        type="tel"
+                        value={formData.psiquiatra_telefono}
+                        onChange={(e) => setFormData({ ...formData, psiquiatra_telefono: e.target.value })}
+                      />
+                      <Input
+                        label="Correo del psiquiatra"
+                        type="email"
+                        value={formData.psiquiatra_email}
+                        onChange={(e) => setFormData({ ...formData, psiquiatra_email: e.target.value })}
                       />
                     </div>
                   )}
@@ -728,7 +746,7 @@ export default function Sesion3Page() {
         </div>
 
         <FormPrintPreview
-          isAdmin={isAdmin}
+          canSeeAll={canSeeAll}
           title="Sesión 3 · Resultados"
           subtitle="Informe clínico y cierre de la evaluación"
           filename={`sesion-3-${patientFull?.paciente || 'paciente'}`}

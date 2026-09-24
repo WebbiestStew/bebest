@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { SignJWT, jwtVerify } from 'jose';
 import { User } from './types';
-import { hasAdminAccess } from './roles';
+import { hasAdminAccess, hasFullAccess as hasFullRoleAccess } from './roles';
 
 const secret = new TextEncoder().encode(process.env.NEXTAUTH_SECRET);
 
@@ -46,4 +46,12 @@ export async function getCurrentUserFromRequest(
 export async function isAdmin(request: NextRequest): Promise<boolean> {
   const user = await getCurrentUserFromRequest(request);
   return hasAdminAccess(user?.rol);
+}
+
+// Broader than isAdmin above — also true for coordinador. Use this wherever
+// the gate is "see all clinical data" rather than "manage the system itself"
+// (see hasFullAccess/hasAdminAccess in lib/roles.ts for the distinction).
+export async function hasFullAccess(request: NextRequest): Promise<boolean> {
+  const user = await getCurrentUserFromRequest(request);
+  return hasFullRoleAccess(user?.rol);
 }

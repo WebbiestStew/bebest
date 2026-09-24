@@ -9,7 +9,7 @@ import { Input, Select, Textarea, Checkbox } from '@/components/FormInputs';
 import { FormPrintPreview, PreviewSection, PreviewField } from '@/components/FormPrintPreview';
 import { PsychTestModal } from '@/components/PsychTestModal';
 import { useAuth } from '@/lib/useAuth';
-import { hasAdminAccess } from '@/lib/roles';
+import { hasFullAccess } from '@/lib/roles';
 import { Patient } from '@/lib/types';
 import { getPsychTest, TestResponses } from '@/lib/psychTests';
 import {
@@ -112,7 +112,7 @@ export default function Sesion2Page() {
   if (isLoading) return null;
   if (!user) return null;
 
-  const isAdmin = hasAdminAccess(user.rol);
+  const canSeeAll = hasFullAccess(user.rol);
 
   const validateForm = () => {
     const newErrors: FormErrors = {};
@@ -139,7 +139,7 @@ export default function Sesion2Page() {
     setFormData({
       ...formData,
       paciente: patientId,
-      terapeuta: (p as any)?.terapeuta || (isAdmin ? '' : user.nombre),
+      terapeuta: (p as any)?.terapeuta || (canSeeAll ? '' : user.nombre),
     });
     setPatientFull(p || null);
 
@@ -364,27 +364,29 @@ export default function Sesion2Page() {
           <p className="text-ink-soft text-base">Batería de pruebas aplicadas al paciente.</p>
         </div>
 
-        {/* Step Tracker */}
-        <div className="flex items-center gap-4 mb-8 animate-fade-in-up" style={{ animationDelay: '60ms' }}>
-          <div className="flex items-center">
+        {/* Step Tracker — labels hidden below sm: three uppercase Spanish
+            words plus connecting lines don't fit a 375px viewport, and the
+            page title above already says which step this is. */}
+        <div className="flex items-center gap-2 sm:gap-4 mb-8 animate-fade-in-up" style={{ animationDelay: '60ms' }}>
+          <div className="flex items-center shrink-0">
             <div className="w-8 h-8 rounded-full bg-sage-deep text-white flex items-center justify-center text-xs font-mono font-medium animate-scale-in transition-all duration-300">
               ✓
             </div>
-            <span className="ml-2 text-xs text-ink-soft uppercase">Entrevista</span>
+            <span className="ml-2 text-xs text-ink-soft uppercase hidden sm:inline">Entrevista</span>
           </div>
           <div className="flex-1 h-px bg-line" />
-          <div className="flex items-center">
+          <div className="flex items-center shrink-0">
             <div className="w-8 h-8 rounded-full bg-sage-deep text-white flex items-center justify-center text-xs font-mono scale-110 shadow-md transition-all duration-300">
               2
             </div>
-            <span className="ml-2 text-xs text-ink-soft uppercase">Pruebas</span>
+            <span className="ml-2 text-xs text-ink-soft uppercase hidden sm:inline">Pruebas</span>
           </div>
           <div className="flex-1 h-px bg-line" />
-          <div className="flex items-center">
+          <div className="flex items-center shrink-0">
             <div className="w-8 h-8 rounded-full bg-sage-pale text-sage-deep flex items-center justify-center text-xs font-mono transition-all duration-300">
               3
             </div>
-            <span className="ml-2 text-xs text-ink-soft uppercase">Resultados</span>
+            <span className="ml-2 text-xs text-ink-soft uppercase hidden sm:inline">Resultados</span>
           </div>
         </div>
 
@@ -401,7 +403,7 @@ export default function Sesion2Page() {
             required
           />
 
-          {isAdmin ? (
+          {canSeeAll ? (
             <Select
               label="Terapeuta"
               options={therapists.map((t) => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) }))}
@@ -624,7 +626,7 @@ export default function Sesion2Page() {
         </div>
 
         <FormPrintPreview
-          isAdmin={isAdmin}
+          canSeeAll={canSeeAll}
           title="Sesión 2 · Pruebas"
           subtitle="Batería de pruebas aplicadas"
           filename={`sesion-2-${patientFull?.paciente || 'paciente'}`}

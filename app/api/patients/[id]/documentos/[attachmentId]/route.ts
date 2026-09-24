@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentUserFromRequest, isAdmin } from '@/lib/session';
+import { getCurrentUserFromRequest, hasFullAccess } from '@/lib/session';
 import { getRecord } from '@/lib/airtable';
 import { Patient } from '@/lib/types';
 import { reportServerError } from '@/lib/errorMonitor';
@@ -29,13 +29,14 @@ export async function GET(
     const patientAny = patient as any;
     const isAssigned =
       patientAny.terapeuta === user.nombre || patientAny.coterapeuta === user.nombre;
-    if (!(await isAdmin(request)) && patientAny.terapeuta && !isAssigned) {
+    if (!(await hasFullAccess(request)) && patientAny.terapeuta && !isAssigned) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     // Looks across every attachment field this patient has, not just the
-    // general `documentos` bucket — plan_no_suicidio_doc and
-    // consentimiento_informado_doc are separate fields (see
+    // general `documentos` bucket — plan_no_suicidio_doc,
+    // consentimiento_informado_doc, and the four documentos_* section fields
+    // are all separate fields (see
     // app/api/patients/[id]/documentos/route.ts's ALLOWED_FIELDS) so their
     // "already uploaded" state survives a reselect, but that meant this
     // route could never actually serve them back once uploaded.
@@ -43,6 +44,10 @@ export async function GET(
       ...(patientAny.documentos || []),
       ...(patientAny.plan_no_suicidio_doc || []),
       ...(patientAny.consentimiento_informado_doc || []),
+      ...(patientAny.documentos_datos_personales || []),
+      ...(patientAny.documentos_trabajo || []),
+      ...(patientAny.documentos_sesiones || []),
+      ...(patientAny.documentos_altas_bajas || []),
     ].find((d: any) => d.id === params.attachmentId);
     if (!doc) {
       return NextResponse.json({ error: 'Documento no encontrado' }, { status: 404 });

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentUserFromRequest, isAdmin } from '@/lib/session';
+import { getCurrentUserFromRequest, hasFullAccess } from '@/lib/session';
 import { createRecord, findRecords, updateRecord, getRecord, escapeAirtableFormula } from '@/lib/airtable';
 import { Patient } from '@/lib/types';
 import { logAccess, summarizeChanges } from '@/lib/auditLog';
@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   try {
     let patients;
 
-    if (await isAdmin(request)) {
+    if (await hasFullAccess(request)) {
       // Admin sees all patients
       patients = await findRecords<Patient>('pacientes_2025_2026');
     } else {
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     }
 
     // For regular users, they can only create patients assigned to themselves
-    const terapeuta = !(await isAdmin(request)) ? user.nombre : (body.terapeuta || user.nombre);
+    const terapeuta = !(await hasFullAccess(request)) ? user.nombre : (body.terapeuta || user.nombre);
 
     const newPatient = await createRecord<Patient>('pacientes_2025_2026', {
       paciente: body.paciente,
@@ -144,7 +144,7 @@ export async function PUT(request: NextRequest) {
     const patientAny = patient as any;
     const isAssigned =
       patientAny.terapeuta === user.nombre || patientAny.coterapeuta === user.nombre;
-    if (!(await isAdmin(request)) && patientAny.terapeuta && !isAssigned) {
+    if (!(await hasFullAccess(request)) && patientAny.terapeuta && !isAssigned) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

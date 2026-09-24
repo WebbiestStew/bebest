@@ -8,7 +8,7 @@ import { Button, BackButton } from '@/components/Button';
 import { Input, Select, Textarea, Checkbox } from '@/components/FormInputs';
 import { FormPrintPreview, PreviewSection, PreviewField } from '@/components/FormPrintPreview';
 import { useAuth } from '@/lib/useAuth';
-import { hasAdminAccess } from '@/lib/roles';
+import { hasFullAccess } from '@/lib/roles';
 import { Patient } from '@/lib/types';
 import { uploadPatientDocument } from '@/lib/utils';
 
@@ -60,7 +60,7 @@ export default function Sesion1Page() {
   if (isLoading) return null;
   if (!user) return null;
 
-  const isAdmin = hasAdminAccess(user.rol);
+  const canSeeAll = hasFullAccess(user.rol);
 
   const validateForm = () => {
     const newErrors: FormErrors = {};
@@ -80,7 +80,7 @@ export default function Sesion1Page() {
       // correct it (e.g. a coterapeuta covering this particular session);
       // non-admins see it locked to themselves regardless (enforced below
       // in the UI, same convention as Agenda's booking form).
-      terapeuta: (p as any)?.terapeuta || (isAdmin ? '' : user.nombre),
+      terapeuta: (p as any)?.terapeuta || (canSeeAll ? '' : user.nombre),
     });
     setPatientFull(p || null);
 
@@ -231,27 +231,29 @@ export default function Sesion1Page() {
           <p className="text-ink-soft text-base">Historia clínica del paciente.</p>
         </div>
 
-        {/* Step Tracker */}
-        <div className="flex items-center gap-4 mb-8 animate-fade-in-up" style={{ animationDelay: '60ms' }}>
-          <div className="flex items-center">
+        {/* Step Tracker — labels hidden below sm: three uppercase Spanish
+            words plus connecting lines don't fit a 375px viewport, and the
+            page title above already says which step this is. */}
+        <div className="flex items-center gap-2 sm:gap-4 mb-8 animate-fade-in-up" style={{ animationDelay: '60ms' }}>
+          <div className="flex items-center shrink-0">
             <div className="w-8 h-8 rounded-full bg-sage-deep text-white flex items-center justify-center text-xs font-mono scale-110 shadow-md transition-all duration-300">
               1
             </div>
-            <span className="ml-2 text-xs text-ink-soft uppercase">Entrevista</span>
+            <span className="ml-2 text-xs text-ink-soft uppercase hidden sm:inline">Entrevista</span>
           </div>
           <div className="flex-1 h-px bg-line" />
-          <div className="flex items-center">
+          <div className="flex items-center shrink-0">
             <div className="w-8 h-8 rounded-full bg-sage-pale text-sage-deep flex items-center justify-center text-xs font-mono transition-all duration-300">
               2
             </div>
-            <span className="ml-2 text-xs text-ink-soft uppercase">Pruebas</span>
+            <span className="ml-2 text-xs text-ink-soft uppercase hidden sm:inline">Pruebas</span>
           </div>
           <div className="flex-1 h-px bg-line" />
-          <div className="flex items-center">
+          <div className="flex items-center shrink-0">
             <div className="w-8 h-8 rounded-full bg-sage-pale text-sage-deep flex items-center justify-center text-xs font-mono transition-all duration-300">
               3
             </div>
-            <span className="ml-2 text-xs text-ink-soft uppercase">Resultados</span>
+            <span className="ml-2 text-xs text-ink-soft uppercase hidden sm:inline">Resultados</span>
           </div>
         </div>
 
@@ -268,7 +270,7 @@ export default function Sesion1Page() {
             required
           />
 
-          {isAdmin ? (
+          {canSeeAll ? (
             <Select
               label="Terapeuta"
               options={therapists.map((t) => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) }))}
@@ -348,7 +350,7 @@ export default function Sesion1Page() {
         </div>
 
         <FormPrintPreview
-          isAdmin={isAdmin}
+          canSeeAll={canSeeAll}
           title="Sesión 1 · Entrevista"
           subtitle="Historia clínica del paciente"
           filename={`sesion-1-${patientFull?.paciente || 'paciente'}`}

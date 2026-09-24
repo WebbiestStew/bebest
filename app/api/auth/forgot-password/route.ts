@@ -40,7 +40,12 @@ export async function POST(req: NextRequest) {
     // exists at all).
     if (user && user.id.startsWith('rec')) {
       const token = await createPasswordResetToken(user.id, user.email);
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+      // NEXT_PUBLIC_APP_URL isn't set in local dev, and the fallback below
+      // goes straight into an email — a recipient's inbox can never reach
+      // localhost, so the fallback is the real deployed URL, not localhost,
+      // even though every other "not set locally" fallback in this app
+      // would normally be localhost.
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://bebest.vercel.app';
       const resetUrl = `${baseUrl}/reset-password?token=${token}`;
       await sendPasswordResetEmail(user.email, user.nombre, resetUrl);
     }

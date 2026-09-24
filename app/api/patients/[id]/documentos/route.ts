@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentUserFromRequest, isAdmin } from '@/lib/session';
+import { getCurrentUserFromRequest, hasFullAccess } from '@/lib/session';
 import { getRecord, updateRecord, uploadAttachment } from '@/lib/airtable';
 import { Patient } from '@/lib/types';
 import { logAccess } from '@/lib/auditLog';
@@ -7,10 +7,22 @@ import { logAccess } from '@/lib/auditLog';
 const MAX_FILE_BYTES = 15 * 1024 * 1024; // 15MB
 
 // Which attachment fields this endpoint is allowed to write to — 'documentos'
-// is the general-purpose bucket (INE, contrato, informe); the other two are
-// dedicated fields so their "is this actually uploaded" state survives a
-// page reload without having to guess from filenames in the general bucket.
-const ALLOWED_FIELDS = ['documentos', 'plan_no_suicidio_doc', 'consentimiento_informado_doc'] as const;
+// is the general-purpose/legacy bucket (anything uploaded before the
+// sectioned fields below existed); plan_no_suicidio_doc/
+// consentimiento_informado_doc are dedicated fields so their "is this
+// actually uploaded" state survives a page reload without having to guess
+// from filenames; the four documentos_* fields are the sectioned buckets
+// (Datos personales / Trabajo / Sesiones / Altas y bajas) new uploads go
+// into instead of the general one.
+const ALLOWED_FIELDS = [
+  'documentos',
+  'plan_no_suicidio_doc',
+  'consentimiento_informado_doc',
+  'documentos_datos_personales',
+  'documentos_trabajo',
+  'documentos_sesiones',
+  'documentos_altas_bajas',
+] as const;
 type AllowedField = (typeof ALLOWED_FIELDS)[number];
 
 function isAllowedField(field: unknown): field is AllowedField {
@@ -27,7 +39,7 @@ async function checkAccess(request: NextRequest, patientId: string) {
   const patientAny = patient as any;
   const isAssigned =
     patientAny.terapeuta === user.nombre || patientAny.coterapeuta === user.nombre;
-  if (!(await isAdmin(request)) && patientAny.terapeuta && !isAssigned) {
+  if (!(await hasFullAccess(request)) && patientAny.terapeuta && !isAssigned) {
     return { error: 'Forbidden', status: 403 } as const;
   }
 

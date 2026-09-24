@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentUserFromRequest, isAdmin } from '@/lib/session';
+import { getCurrentUserFromRequest, hasFullAccess } from '@/lib/session';
 import { createRecord, findRecords, getRecord, updateRecord, escapeAirtableFormula } from '@/lib/airtable';
 import { Alert, Patient } from '@/lib/types';
 import { sendAlertEmail } from '@/lib/email';
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     // Admins see every incomplete-form alert; regular users only see the
     // ones from forms they themselves saved incomplete (mirrors the
     // terapeuta/coterapeuta scoping already applied to /api/patients).
-    const visible = (await isAdmin(request))
+    const visible = (await hasFullAccess(request))
       ? alerts
       : alerts.filter((a: any) => a.Usuario_nombre === user.nombre);
     return NextResponse.json({ alerts: visible });

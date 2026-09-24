@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentUserFromRequest, isAdmin } from '@/lib/session';
+import { getCurrentUserFromRequest, hasFullAccess } from '@/lib/session';
 import { getRecord, updateRecord, findRecords, createRecord } from '@/lib/airtable';
 import { Cita, Patient } from '@/lib/types';
 import { sendAlertEmail } from '@/lib/email';
@@ -16,7 +16,7 @@ async function checkAccess(request: NextRequest, citaId: string) {
   const cita = await getRecord<Cita>('citas', citaId);
   if (!cita) return { error: 'Cita no encontrada', status: 404 } as const;
 
-  if (!(await isAdmin(request)) && (cita as any).terapeuta !== user.nombre) {
+  if (!(await hasFullAccess(request)) && (cita as any).terapeuta !== user.nombre) {
     // Not the primary terapeuta on this cita — still allow it if the user is
     // the coterapeuta on the linked patient (citas only stores the primary).
     const patientId = ((cita as any).paciente || [])[0];

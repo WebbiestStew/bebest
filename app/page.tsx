@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import clsx from 'clsx';
 import { useAuth } from '@/lib/useAuth';
-import { hasAdminAccess } from '@/lib/roles';
+import { hasAdminAccess, hasFullAccess } from '@/lib/roles';
 import { Navigation } from '@/components/Navigation';
 import { Toast } from '@/components/Toast';
 import { Skeleton } from '@/components/Skeleton';
@@ -53,7 +53,12 @@ interface CatalogEntry {
   title: string | ((isAdmin: boolean) => string);
   subtitle: string | ((isAdmin: boolean) => string);
   href: string;
+  // Full clinical access — admin/developer/coordinador. See systemOnly below
+  // for the narrower, admin/developer-only case.
   adminOnly?: boolean;
+  // Strictly admin/developer — for the one tile (Usuarios) a coordinador
+  // still doesn't get.
+  systemOnly?: boolean;
 }
 
 const CATALOG: CatalogEntry[] = [
@@ -134,7 +139,7 @@ const CATALOG: CatalogEntry[] = [
     title: 'Usuarios',
     subtitle: 'Cuentas con acceso al sistema.',
     href: '/admin/usuarios',
-    adminOnly: true,
+    systemOnly: true,
   },
 ];
 
@@ -269,7 +274,8 @@ export default function Inicio() {
     return null; // Middleware will redirect to login
   }
 
-  const isAdmin = hasAdminAccess(user.rol);
+  const canSeeAll = hasFullAccess(user.rol);
+  const isSystemAdmin = hasAdminAccess(user.rol);
   const rawFirstName = (user.nombre || '').split(' ')[0];
   const firstName = rawFirstName ? rawFirstName.charAt(0).toUpperCase() + rawFirstName.slice(1) : '';
 
@@ -277,18 +283,21 @@ export default function Inicio() {
     .map((cfg) => {
       const entry = CATALOG.find((c) => c.id === cfg.id);
       if (!entry) return null; // stale id from an older catalog version
-      if (entry.adminOnly && !isAdmin) return null;
+      if (entry.adminOnly && !canSeeAll) return null;
+      if (entry.systemOnly && !isSystemAdmin) return null;
       return {
         ...cfg,
         icon: entry.icon,
-        title: resolveText(entry.title, isAdmin),
-        subtitle: resolveText(entry.subtitle, isAdmin),
+        title: resolveText(entry.title, canSeeAll),
+        subtitle: resolveText(entry.subtitle, canSeeAll),
         href: entry.href,
       };
     })
     .filter((t): t is TileConfig & { icon: string; title: string; subtitle: string; href: string } => t !== null);
 
-  const availableToAdd = CATALOG.filter((c) => (!c.adminOnly || isAdmin) && !layout.some((l) => l.id === c.id));
+  const availableToAdd = CATALOG.filter(
+    (c) => (!c.adminOnly || canSeeAll) && (!c.systemOnly || isSystemAdmin) && !layout.some((l) => l.id === c.id)
+  );
 
   const updateTileSize = (id: string) => {
     persistLayout(layout.map((t) => (t.id === id ? { ...t, size: NEXT_SIZE[t.size] } : t)));
@@ -311,7 +320,7 @@ export default function Inicio() {
   const resetLayout = () => persistLayout(DEFAULT_LAYOUT);
 
   const statCards = [
-    { label: isAdmin ? 'Pacientes totales' : 'Tus pacientes', value: stats.total, accent: 'text-ink' },
+    { label: canSeeAll ? 'Pacientes totales' : 'Tus pacientes', value: stats.total, accent: 'text-ink' },
     { label: 'Activos', value: stats.activos, accent: 'text-sage-deep' },
     { label: 'Altas', value: stats.altas, accent: 'text-blue' },
   ];
@@ -522,7 +531,7 @@ export default function Inicio() {
                           className="w-full flex items-center gap-2.5 p-2.5 rounded-lg hover:bg-sage-pale/40 text-left transition-colors duration-150"
                         >
                           <span className="text-lg shrink-0">{c.icon}</span>
-                          <span className="text-sm text-ink">{resolveText(c.title, isAdmin)}</span>
+                          <span className="text-sm text-ink">{resolveText(c.title, canSeeAll)}</span>
                         </button>
                       ))
                     )}

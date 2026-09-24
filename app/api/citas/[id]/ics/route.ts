@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentUserFromRequest, isAdmin } from '@/lib/session';
+import { getCurrentUserFromRequest, hasFullAccess } from '@/lib/session';
 import { getRecord } from '@/lib/airtable';
 import { Cita, Patient } from '@/lib/types';
 import { buildCitaIcs } from '@/lib/utils';
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     return NextResponse.json({ error: 'Cita no encontrada' }, { status: 404 });
   }
 
-  if (!(await isAdmin(request)) && (cita as any).terapeuta !== user.nombre) {
+  if (!(await hasFullAccess(request)) && (cita as any).terapeuta !== user.nombre) {
     const patientId = ((cita as any).paciente || [])[0];
     const patient = patientId ? await getRecord<Patient>('pacientes_2025_2026', patientId) : null;
     if (!patient || (patient as any).coterapeuta !== user.nombre) {

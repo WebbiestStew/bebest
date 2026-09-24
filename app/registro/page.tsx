@@ -8,7 +8,7 @@ import { Button, BackButton } from '@/components/Button';
 import { Input, Select, Checkbox } from '@/components/FormInputs';
 import { FormPrintPreview, PreviewSection, PreviewField } from '@/components/FormPrintPreview';
 import { useAuth } from '@/lib/useAuth';
-import { hasAdminAccess } from '@/lib/roles';
+import { hasFullAccess } from '@/lib/roles';
 import { uploadPatientDocument, serializeMotivoConsulta } from '@/lib/utils';
 
 const SEXO_OPTIONS = ['Masculino', 'Femenino', 'Prefiero no decirlo'];
@@ -177,7 +177,7 @@ export default function RegistroPage() {
   if (isLoading) return null;
   if (!user) return null;
 
-  const isAdmin = hasAdminAccess(user.rol);
+  const canSeeAll = hasFullAccess(user.rol);
 
   const showProfesional = MUESTRA_SECCION_PROFESIONAL.includes(formData.motivo_solicitud);
 
@@ -882,7 +882,7 @@ export default function RegistroPage() {
         </div>
 
         <FormPrintPreview
-          isAdmin={isAdmin}
+          canSeeAll={canSeeAll}
           title="Ficha de Registro"
           subtitle="Registro inicial de pacientes adultos"
           filename={`ficha-de-registro-${formData.nombre || 'paciente'}`}

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentUserFromRequest, isAdmin } from '@/lib/session';
+import { getCurrentUserFromRequest, hasFullAccess } from '@/lib/session';
 import { createRecord, createRecords, findRecords, escapeAirtableFormula } from '@/lib/airtable';
 import { Cita } from '@/lib/types';
 
@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
 
   try {
     let citas;
-    if (await isAdmin(request)) {
+    if (await hasFullAccess(request)) {
       citas = await findRecords<Cita>('citas');
     } else {
       // citas only stores the primary terapeuta, not coterapeuta — so a
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Non-admins can only schedule appointments under their own name
-    const terapeuta = !(await isAdmin(request)) ? user.nombre : body.terapeuta;
+    const terapeuta = !(await hasFullAccess(request)) ? user.nombre : body.terapeuta;
 
     const repeatWeeks = Math.min(Math.max(parseInt(body.repeatWeeks, 10) || 1, 1), 52);
     const baseFields = {

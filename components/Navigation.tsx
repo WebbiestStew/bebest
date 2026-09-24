@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { User } from '@/lib/types';
-import { hasAdminAccess, roleLabel } from '@/lib/roles';
+import { hasAdminAccess, hasFullAccess, roleLabel } from '@/lib/roles';
 import { GlobalSearch } from '@/components/GlobalSearch';
 
 interface NavProps {
@@ -58,7 +58,11 @@ export function Navigation({ user }: NavProps) {
 
   if (!user || pathname === '/login') return null;
 
-  const isAdmin = hasAdminAccess(user.rol);
+  // canSeeAll: full clinical visibility (admin/developer/coordinador) — used
+  // for labels/scope. isSystemAdmin: strictly admin/developer — the only two
+  // links a coordinador still doesn't get (account management, audit log).
+  const canSeeAll = hasFullAccess(user.rol);
+  const isSystemAdmin = hasAdminAccess(user.rol);
 
   const navItems = [
     { href: '/', label: 'Inicio', icon: '🏠' },
@@ -68,12 +72,12 @@ export function Navigation({ user }: NavProps) {
     { href: '/sesion/2', label: 'Sesión 2 · Pruebas', icon: '📋' },
     { href: '/sesion/3', label: 'Sesión 3 · Resultados', icon: '🎯' },
     { href: '/paciente', label: 'Ver ficha de paciente', icon: '👤' },
-    { href: '/pacientes', label: isAdmin ? 'Base de Datos' : 'Mis Pacientes', icon: '📊' },
+    { href: '/pacientes', label: canSeeAll ? 'Base de Datos' : 'Mis Pacientes', icon: '📊' },
     { href: '/reportes', label: 'Reportes', icon: '📈' },
     { href: '/sugerencias', label: 'Sugerencias', icon: '💡' },
     { href: '/alertas', label: 'Alertas', icon: '🔔', badge: alertCount },
-    ...(isAdmin ? [{ href: '/admin/usuarios', label: 'Usuarios', icon: '👥' }] : []),
-    ...(isAdmin ? [{ href: '/auditoria', label: 'Historial de cambios', icon: '🕓' }] : []),
+    ...(isSystemAdmin ? [{ href: '/admin/usuarios', label: 'Usuarios', icon: '👥' }] : []),
+    ...(isSystemAdmin ? [{ href: '/auditoria', label: 'Historial de cambios', icon: '🕓' }] : []),
   ];
 
   if (!mounted) return null;
