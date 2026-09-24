@@ -188,6 +188,38 @@ export function serializeDxAdicionales(rows: DxAdicional[]): string {
   return nonEmpty.length ? JSON.stringify(nonEmpty) : '';
 }
 
+// A frozen copy of the Dx Principal/Comorbilidad/Otros Problemas fields (plus
+// Otros adicionales), taken right before a Re-ingreso clears them for the
+// new admission — otherwise the original diagnosis is gone the moment the
+// patient is re-diagnosed. Captured once, on the FIRST Re-ingreso only (see
+// app/paciente/[id]/page.tsx handleStartEvaluacionProceso): the live
+// dx_principal/etc. fields always reflect the most recent admission,
+// whichever number that actually is, while this snapshot stays "1ª vez"
+// permanently. Same JSON-in-text-field pattern as everything else here.
+export interface DxSnapshot {
+  principal?: string;
+  principalCodigo?: string;
+  comorbilidad?: string;
+  comorbilidadCodigo?: string;
+  otrosProblemas?: string;
+  otrosProblemasCodigo?: string;
+  otrosAdicionales?: DxAdicional[];
+}
+
+export function parseDxSnapshot(raw?: string): DxSnapshot | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function serializeDxSnapshot(snapshot: DxSnapshot): string {
+  return JSON.stringify(snapshot);
+}
+
 // Motivo de consulta (Ficha de Registro) — "select all that apply" list of
 // concerns, stored as a JSON array string for the same reason as above.
 export function parseMotivoConsulta(raw?: string): string[] {

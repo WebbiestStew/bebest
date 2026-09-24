@@ -21,6 +21,8 @@ import {
   parseMotivoConsulta,
   parseBateriaPruebas,
   parsePruebaInterpretaciones,
+  parseDxSnapshot,
+  serializeDxSnapshot,
   downloadPdf,
   deleteWithUndo,
 } from '@/lib/utils';
@@ -113,6 +115,7 @@ export default function PacienteDetailPage() {
   const [isDownloadingBrief, setIsDownloadingBrief] = useState(false);
   const [isDownloadingExpediente, setIsDownloadingExpediente] = useState(false);
   const [isDownloadingInforme, setIsDownloadingInforme] = useState(false);
+  const [isDownloadingAltaBaja, setIsDownloadingAltaBaja] = useState(false);
   const [downloadingSessionId, setDownloadingSessionId] = useState<string | null>(null);
   const [therapists, setTherapists] = useState<string[]>([]);
   const [isEditingPatient, setIsEditingPatient] = useState(false);
@@ -213,10 +216,31 @@ export default function PacienteDetailPage() {
   // rather than left to sit alongside whatever comes out of a fresh Sesión
   // 1/2/3 — contact info, therapist assignment, and history are untouched.
   // fecha_ingreso is bumped to today so reportes counts them as a new intake
-  // again, matching how Re-ingreso is meant to read in the numbers.
+  // again, matching how Re-ingreso is meant to read in the numbers. The
+  // outgoing diagnosis is archived into dx_1era_vez (see lib/utils.ts
+  // DxSnapshot) right before being cleared, so "Dx. 1ª vez" stays visible on
+  // the ficha even after the fields below are wiped for the new admission.
   const handleStartEvaluacionProceso = async () => {
     setIsStartingEvaluacion(true);
     try {
+      const p = patient as any;
+      // Freeze the outgoing diagnosis before it's cleared below — but only on
+      // the FIRST Re-ingreso. A second/third Re-ingreso would otherwise
+      // overwrite the true original diagnosis with whatever the most recent
+      // admission's turned out to be.
+      const dxSnapshot =
+        !p?.dx_1era_vez && (p?.dx_principal || p?.dx_comorbilidad || p?.dx_otros_problemas)
+          ? serializeDxSnapshot({
+              principal: p.dx_principal,
+              principalCodigo: p.dx_principal_codigo,
+              comorbilidad: p.dx_comorbilidad,
+              comorbilidadCodigo: p.dx_comorbilidad_codigo,
+              otrosProblemas: p.dx_otros_problemas,
+              otrosProblemasCodigo: p.dx_otros_problemas_codigo,
+              otrosAdicionales: parseDxAdicionales(p.dx_otros_adicionales),
+            })
+          : undefined;
+
       const res = await fetch(`/api/patients?id=${patientId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -226,6 +250,7 @@ export default function PacienteDetailPage() {
           expediente_completo: false,
           num_sesiones: 0,
           num_inasistencias: 0,
+          ...(dxSnapshot ? { dx_1era_vez: dxSnapshot } : {}),
           dx_principal: '',
           dx_principal_codigo: '',
           dx_comorbilidad: '',
@@ -641,6 +666,71 @@ export default function PacienteDetailPage() {
     }
   };
 
+  // Reporte de Alta/Baja — a closing-summary document for when a patient's
+  // estatus_en_registro is ALTA (successful discharge) or BAJA (dropped
+  // out), same generic PdfDocument the brief/expediente PDFs use since there
+  // was no physical template to mirror exactly. Title/wording follow which
+  // of the two statuses is current.
+  const handleDownloadAltaBaja = async () => {
+    if (!patient) return;
+    setIsDownloadingAltaBaja(true);
+    try {
+      const p = patient as any;
+      const esAlta = p.estatus_en_registro === 'ALTA';
+      const notas = parseNotasGenerales(p.notas_generales);
+
+      const sections: PdfSectionData[] = [
+        {
+          title: 'Paciente',
+          fields: [
+            { label: 'Nombre', value: p.paciente, full: true },
+            { label: 'Edad', value: p.edad ?? null },
+            { label: 'Terapeuta', value: p.terapeuta },
+            { label: 'Coterapeuta', value: p.coterapeuta },
+            { label: 'Fecha de ingreso', value: p.fecha_ingreso ? formatDate(p.fecha_ingreso) : null },
+            { label: esAlta ? 'Fecha de alta' : 'Fecha de baja', value: p.fecha_baja ? formatDate(p.fecha_baja) : null },
+            { label: 'Sesiones realizadas', value: p.num_sesiones ?? 0 },
+            { label: 'Inasistencias', value: p.num_inasistencias ?? 0 },
+          ],
+        },
+        {
+          title: 'Diagnóstico',
+          fields: [
+            { label: 'Dx Principal', value: p.dx_principal, full: true },
+            { label: 'Código', value: p.dx_principal_codigo },
+            { label: 'Dx Comorbilidad', value: p.dx_comorbilidad, full: true },
+            { label: 'Código', value: p.dx_comorbilidad_codigo },
+            { label: 'Otros problemas', value: p.dx_otros_problemas, full: true },
+            { label: 'Código', value: p.dx_otros_problemas_codigo },
+          ],
+        },
+        {
+          title: esAlta ? 'Resumen del tratamiento' : 'Última nota registrada',
+          fields: esAlta
+            ? [{ label: 'Notas más recientes', value: notas[0]?.texto, full: true }]
+            : [{ label: 'Última nota', value: notas[0]?.texto, full: true }],
+        },
+      ];
+
+      await downloadPdf(
+        <PdfDocument
+          title={`${esAlta ? 'Reporte de Alta' : 'Reporte de Baja'} — ${p.paciente}`}
+          subtitle={new Date().toLocaleDateString('es-MX', { dateStyle: 'long' })}
+          sections={sections}
+          generatedNote={`Consulta · ${esAlta ? 'Reporte de alta' : 'Reporte de baja'} del paciente`}
+        />,
+        `${esAlta ? 'reporte-de-alta' : 'reporte-de-baja'}-${p.paciente || 'paciente'}`
+      );
+    } catch (error) {
+      console.error('Error generating alta/baja PDF:', error);
+      window.dispatchEvent(
+        new CustomEvent('showToast', { detail: { message: 'Error al generar el PDF', isError: true } })
+      );
+    } finally {
+      setIsDownloadingAltaBaja(false);
+    }
+  };
+
   // The real "Informe de Resultados de Evaluación Psicológica" the clinic
   // hands to patients/insurers — matches the physical CPCCM letterhead
   // section-for-section (I-VIII). Everything it needs already lives on this
@@ -896,6 +986,17 @@ export default function PacienteDetailPage() {
                 >
                   🧾 Informe de Resultados (PDF)
                 </Button>
+                {(p.estatus_en_registro === 'ALTA' || p.estatus_en_registro === 'BAJA') && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleDownloadAltaBaja}
+                    disabled={isDownloadingAltaBaja}
+                    isLoading={isDownloadingAltaBaja}
+                  >
+                    {p.estatus_en_registro === 'ALTA' ? '📗 Reporte de Alta (PDF)' : '📕 Reporte de Baja (PDF)'}
+                  </Button>
+                )}
               </>
             )}
           </div>
@@ -1116,6 +1217,66 @@ export default function PacienteDetailPage() {
           <div className="text-xs font-mono text-sage-deep uppercase tracking-widest mb-5">
             Diagnóstico
           </div>
+          {(() => {
+            const snapshot = parseDxSnapshot(p.dx_1era_vez);
+            if (!snapshot) return null;
+            return (
+              <div className="mb-6 p-4 rounded-lg bg-clay-pale/40 border border-clay-pale">
+                <div className="text-[11px] font-mono uppercase tracking-widest text-clay mb-3">
+                  Dx. 1ª vez (antes del reingreso)
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs text-ink-soft uppercase tracking-wider">Dx Principal</label>
+                    <div className="text-sm mt-1 text-ink-soft">
+                      {snapshot.principal || 'Sin capturar'}
+                      {snapshot.principalCodigo && (
+                        <span className="text-xs font-mono text-clay ml-2">({snapshot.principalCodigo})</span>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-ink-soft uppercase tracking-wider">Dx Comorbilidad</label>
+                    <div className="text-sm mt-1 text-ink-soft">
+                      {snapshot.comorbilidad || 'Sin capturar'}
+                      {snapshot.comorbilidadCodigo && (
+                        <span className="text-xs font-mono text-clay ml-2">({snapshot.comorbilidadCodigo})</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                {snapshot.otrosProblemas && (
+                  <div className="mt-3">
+                    <label className="text-xs text-ink-soft uppercase tracking-wider">Otros Problemas</label>
+                    <div className="text-sm mt-1 text-ink-soft">
+                      {snapshot.otrosProblemas}
+                      {snapshot.otrosProblemasCodigo && (
+                        <span className="text-xs font-mono text-clay ml-2">({snapshot.otrosProblemasCodigo})</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {(snapshot.otrosAdicionales || []).length > 0 && (
+                  <div className="mt-3">
+                    <label className="text-xs text-ink-soft uppercase tracking-wider">Otros</label>
+                    <div className="text-sm mt-1 text-ink-soft space-y-1">
+                      {(snapshot.otrosAdicionales || []).map((o, i) => (
+                        <div key={i}>
+                          {o.nombre}
+                          {o.codigo && <span className="text-xs font-mono text-clay ml-2">({o.codigo})</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+          {p.dx_1era_vez && (
+            <div className="text-[11px] font-mono uppercase tracking-widest text-sage-deep mb-3">
+              Dx. 2ª vez (actual)
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
             <div>
               <label className="text-xs text-ink-soft uppercase tracking-wider">Dx Principal</label>

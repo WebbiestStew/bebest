@@ -105,6 +105,11 @@ export interface Patient {
   // its own optional resolved code. Same JSON-in-text-field pattern as
   // plan_tratamiento, since Airtable has no array-of-objects field type.
   dx_otros_adicionales?: string;
+  // JSON-serialized DxSnapshot (see lib/utils.ts) — a frozen copy of the four
+  // Dx fields above, taken the moment a Re-ingreso clears them for a new
+  // admission. dx_principal etc. always reflect the CURRENT admission's
+  // diagnosis (whichever number that is); this holds the original one.
+  dx_1era_vez?: string;
   // JSON-serialized PlanObjetivo[] (see lib/utils.ts) — the real form is a
   // table of numbered objetivos each paired with técnicas, not a paragraph.
   // Stored as a string because Airtable has no array-of-objects field type.
